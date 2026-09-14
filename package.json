@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check flow.js && node --check scheduling.js && node --check whatsapp.js && node --check make.js && node --check admin.js && node --check util.js && node --check store.js",
+    "check": "node --check server.js && node --check flow.js && node --check scheduling.js && node --check whatsapp.js && node --check make.js && node --check admin.js && node --check util.js && node --check store.js && node --check sunat.js",
     "test": "npm run check && node --test \"test/*.test.js\""
   },
   "license": "ISC",

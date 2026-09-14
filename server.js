@@ -14,13 +14,15 @@ const { createStore } = require("./store");
 const { createWhatsApp, parseIncoming } = require("./whatsapp");
 const { createMake } = require("./make");
 const { createFlow } = require("./flow");
+const { createSunat } = require("./sunat");
 const U = require("./util");
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const store = createStore(supabase, { bucket: process.env.STORAGE_BUCKET || "eco-fotos" });
 const wa = createWhatsApp({ phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, token: process.env.WHATSAPP_TOKEN });
 const make = createMake({ url: process.env.MAKE_WEBHOOK_URL, secret: process.env.MAKE_WEBHOOK_SECRET });
-const flow = createFlow({ store, wa, make });
+const sunat = createSunat();
+const flow = createFlow({ store, wa, make, sunat });
 
 // ── App Secret(s) de Meta: META_APP_SECRET, META_APP_SECRET_2, … ──
 const META_APP_SECRETS = Object.entries(process.env)
@@ -190,7 +192,7 @@ app.post("/simulate", async (req, res) => {
     downloadMedia: async () => ({ buffer: Buffer.from("fake"), mimeType: "image/jpeg", size: 4 }),
   };
   const simStore = { ...store, uploadFoto: async () => image_url || "https://example.com/foto-simulada.jpg" };
-  const simFlow = createFlow({ store: simStore, wa: fakeWa, make });
+  const simFlow = createFlow({ store: simStore, wa: fakeWa, make, sunat });
   const msg = { text: text || null, buttonId: button || null, buttonTitle: button || null, image: image_url ? { id: "sim" } : null, document: null, location: null, type: image_url ? "image" : text ? "text" : "interactive" };
   try {
     await runSerialized(`sim:${user_id}`, () => simFlow.handle({ from: String(user_id), name: name || "Prueba", msg }));

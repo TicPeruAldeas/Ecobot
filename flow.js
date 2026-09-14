@@ -25,7 +25,10 @@ const BTN = {
   confirmar: "res_confirmar", corregir: "res_corregir", cancelarFlujo: "res_cancelar",
   reprogramar: "r_reprogramar", cancelarReserva: "r_cancelar", volver: "r_volver",
   siCancelar: "rc_si", noCancelar: "rc_no",
+  rucSi: "ruc_si", rucNo: "ruc_no",
+  dispLV: "disp_lv", dispSab: "disp_sab",
 };
+const DISPONIBILIDAD = { lun_vie: "Lunes a viernes", incluye_sab: "Incluye sábados" };
 
 const CAMPOS_CORREGIBLES = [
   { id: "fix:nombre", title: "Nombre / empresa" },
@@ -33,13 +36,14 @@ const CAMPOS_CORREGIBLES = [
   { id: "fix:correo", title: "Correo" },
   { id: "fix:distrito", title: "Distrito" },
   { id: "fix:direccion", title: "Dirección" },
+  { id: "fix:disponibilidad", title: "Horario y acceso" },
   { id: "fix:materiales", title: "Materiales" },
   { id: "fix:cantidad", title: "Cantidad" },
   { id: "fix:foto", title: "Fotos" },
   { id: "fix:fecha", title: "Fecha de recojo" },
 ];
 
-function createFlow({ store, wa, make }) {
+function createFlow({ store, wa, make, sunat = null }) {
   // ── Respuestas con registro ──
   async function say(ctx, text) {
     await wa.text(ctx.from, text);
@@ -126,10 +130,30 @@ function createFlow({ store, wa, make }) {
     await go(ctx, "tipo_donante");
     await ask(ctx, "¿Donas como persona o en nombre de una empresa?", [{ id: BTN.persona, title: "Persona" }, { id: BTN.empresa, title: "Empresa" }]);
   }
-  async function askNombre(ctx) {
+  async function askNombre(ctx, prefijo = "") {
     await go(ctx, "nombre");
-    if (ctx.datos.tipo_donante === "empresa") await say(ctx, "¿Cuál es la *razón social* de la empresa?");
-    else await say(ctx, "¿Cuál es tu *nombre completo*?");
+    if (ctx.datos.tipo_donante === "empresa") await say(ctx, `${prefijo}¿Cuál es la *razón social* de la empresa?`);
+    else await say(ctx, `${prefijo}¿Cuál es tu *nombre completo*?`);
+  }
+  // Tras validar el RUC: consulta SUNAT y pide confirmar la razón social.
+  async function confirmarRuc(ctx, info) {
+    await go(ctx, "ruc_confirmar", { sunat: info });
+    const alerta = (info.estado && info.estado !== "ACTIVO") || (info.condicion && info.condicion !== "HABIDO")
+      ? `\n⚠️ SUNAT la reporta como *${[info.estado, info.condicion].filter(Boolean).join(" / ")}*.` : "";
+    await ask(ctx, `Encontré en SUNAT:\n🏢 *${info.razon_social}*${info.nombre_comercial ? ` (${info.nombre_comercial})` : ""}${info.direccion ? `\n📍 ${info.direccion}` : ""}${alerta}\n\n¿Es la empresa correcta?`,
+      [{ id: BTN.rucSi, title: "Sí, es correcta" }, { id: BTN.rucNo, title: "No" }]);
+  }
+  async function askDisponibilidad(ctx) {
+    await go(ctx, "disponibilidad");
+    await ask(ctx, "¿Qué días pueden atender al equipo de recojo?", [{ id: BTN.dispLV, title: "Lunes a viernes" }, { id: BTN.dispSab, title: "Incluye sábados" }]);
+  }
+  async function askHorario(ctx) {
+    await go(ctx, "horario");
+    await say(ctx, "¿En qué *horario* pueden recibir al equipo? Por ejemplo: _9:00 a 13:00 y 14:00 a 17:00_.");
+  }
+  async function askRequisitos(ctx) {
+    await go(ctx, "requisitos");
+    await ask(ctx, "¿Hay *requisitos de acceso* a sus instalaciones para nuestro personal? (SCTR, documentos de identidad, EPP, registro en recepción…)", [{ id: BTN.omitir, title: "Ninguno" }]);
   }
   async function askContacto(ctx) {
     await go(ctx, "contacto");
@@ -191,7 +215,9 @@ function createFlow({ store, wa, make }) {
     const hoy = U.limaParts(new Date()).iso;
     const hasta = U.addDays(hoy, Math.min(Number(cfg.horizonte_dias) || 30, 120));
     const [fechas, ocupacion] = await Promise.all([store.getFechasMap(hoy, hasta), store.getOcupacionMap(hoy, hasta)]);
-    return { fechas: fechasDisponibles({ now: new Date(), distrito, config: cfg, fechas, ocupacion, excluir }), cfg };
+    // Si el donante solo atiende de lunes a viernes, no se ofrecen sábados/domingos aunque la ruta los tenga.
+    const excluirDias = ctx.datos.disponibilidad === "lun_vie" ? [6, 7] : [];
+    return { fechas: fechasDisponibles({ now: new Date(), distrito, config: cfg, fechas, ocupacion, excluir, excluirDias }), cfg };
   }
 
   async function askFecha(ctx, { excluir = null, prefijo = "" } = {}) {
@@ -209,7 +235,9 @@ function createFlow({ store, wa, make }) {
 
   function resumen(d) {
     const quien = d.tipo_donante === "empresa" ? `🏢 ${d.nombre}\n👤 Contacto: ${d.contacto || "-"}` : `👤 ${d.nombre}`;
-    return `${quien}\n🪪 ${d.documento_tipo} ${d.documento}\n✉️ ${d.correo}\n📍 ${d.direccion}${d.referencia ? ` (${d.referencia})` : ""}, ${d.distrito}\n` +
+    const atencion = d.disponibilidad ? `\n🕘 Atención: ${DISPONIBILIDAD[d.disponibilidad] || d.disponibilidad}${d.horario ? `, ${d.horario}` : ""}` : "";
+    const acceso = d.requisitos ? `\n🔐 Acceso: ${d.requisitos}` : "";
+    return `${quien}\n🪪 ${d.documento_tipo} ${d.documento}\n✉️ ${d.correo}\n📍 ${d.direccion}${d.referencia ? ` (${d.referencia})` : ""}, ${d.distrito}${atencion}${acceso}\n` +
       `♻️ ${d.materiales.join(", ")}\n⚖️ ${d.cantidad}${d.comentario ? `\n📝 ${d.comentario}` : ""}\n📷 ${d.fotos.length} foto(s)\n📅 *${U.fechaLarga(d.fecha)}*`;
   }
   async function askConfirmar(ctx) {
@@ -233,6 +261,7 @@ function createFlow({ store, wa, make }) {
       documento_tipo: d.documento_tipo, documento: d.documento, correo: d.correo,
       distrito_id: d.distrito_id || null, distrito: d.distrito, direccion: d.direccion, referencia: d.referencia || null,
       materiales: d.materiales, cantidad: d.cantidad, comentario: d.comentario || null, fotos: d.fotos, fecha_recojo: d.fecha, actor: "donante",
+      disponibilidad: d.disponibilidad || null, horario: d.horario || null, requisitos: d.requisitos || null, sunat: d.sunat || null,
     };
     let reserva;
     try {
@@ -388,13 +417,14 @@ function createFlow({ store, wa, make }) {
         return ask(ctx, "¿Uso tus datos anteriores?", [{ id: BTN.usarDatos, title: "Sí, usar mis datos" }, { id: BTN.datosNuevos, title: "Ingresar nuevos" }]);
 
       case "direccion_confirmar":
-        if (btn === BTN.mismaDir) return askMaterial(ctx);
+        if (btn === BTN.mismaDir) return askDisponibilidad(ctx);
         if (btn === BTN.otraDir) return askDistrito(ctx);
         return ask(ctx, "¿Es la misma dirección?", [{ id: BTN.mismaDir, title: "Sí, la misma" }, { id: BTN.otraDir, title: "Otra dirección" }]);
 
       case "tipo_donante":
+        // Persona: nombre → DNI/RUC → correo.  Empresa: RUC (SUNAT) → contacto → correo.
         if (btn === BTN.persona || /\b(persona|natural|yo)\b/i.test(texto)) { await go(ctx, "nombre", { tipo_donante: "persona" }); return askNombre(ctx); }
-        if (btn === BTN.empresa || /\b(empresa|negocio|compa[ñn][ií]a|ruc)\b/i.test(texto)) { await go(ctx, "nombre", { tipo_donante: "empresa" }); return askNombre(ctx); }
+        if (btn === BTN.empresa || /\b(empresa|negocio|compa[ñn][ií]a|ruc)\b/i.test(texto)) { await go(ctx, "documento", { tipo_donante: "empresa" }); return askDocumento(ctx); }
         return askTipoDonante(ctx);
 
       case "nombre": {
@@ -402,7 +432,10 @@ function createFlow({ store, wa, make }) {
         const v = U.validarNombre(texto);
         if (!v) return say(ctx, "Necesito un nombre válido (mínimo 3 letras). Inténtalo de nuevo.");
         ctx.datos.nombre = ctx.datos.tipo_donante === "empresa" ? v : U.capitalizarNombre(v);
-        if (ctx.datos.tipo_donante === "empresa" && !ctx.datos.corrigiendo) { await go(ctx, "contacto", { nombre: ctx.datos.nombre }); return askContacto(ctx); }
+        if (ctx.datos.tipo_donante === "empresa") {
+          if (ctx.datos.corrigiendo) { await go(ctx, "confirmar", { nombre: ctx.datos.nombre }); return askConfirmar(ctx); }
+          await go(ctx, "contacto", { nombre: ctx.datos.nombre }); return askContacto(ctx);
+        }
         await go(ctx, "documento", { nombre: ctx.datos.nombre });
         return next(ctx, askDocumento);
       }
@@ -410,15 +443,53 @@ function createFlow({ store, wa, make }) {
         if (RE_SOLO_SALUDO.test(texto)) return askContacto(ctx);
         const v = U.validarNombre(texto);
         if (!v) return say(ctx, "Escribe el nombre de la persona de contacto, por favor.");
-        await go(ctx, "documento", { contacto: U.capitalizarNombre(v) });
-        return next(ctx, askDocumento);
+        await go(ctx, "correo", { contacto: U.capitalizarNombre(v) });
+        return next(ctx, askCorreo);
       }
       case "documento": {
         const doc = U.validarDocumento(texto);
         if (!doc) return say(ctx, ctx.datos.tipo_donante === "empresa" ? "El RUC debe tener *11 dígitos* válidos (empieza en 10, 15, 16, 17 o 20). Escríbelo de nuevo." : "El DNI debe tener *8 dígitos* (o el RUC 11 dígitos válidos). Escríbelo de nuevo, solo números.");
         if (ctx.datos.tipo_donante === "empresa" && doc.tipo !== "RUC") return say(ctx, "Para empresas necesito el *RUC* (11 dígitos).");
-        await go(ctx, "correo", { documento_tipo: doc.tipo, documento: doc.valor });
+        const info = doc.tipo === "RUC" && sunat ? await sunat.consultar(doc.valor) : null;
+        ctx.datos.documento_tipo = doc.tipo; ctx.datos.documento = doc.valor; ctx.datos.sunat = info;
+        if (ctx.datos.tipo_donante === "empresa") {
+          if (info?.razon_social) return confirmarRuc(ctx, info);
+          await go(ctx, "nombre", { documento_tipo: doc.tipo, documento: doc.valor, sunat: null });
+          return askNombre(ctx, sunat?.enabled ? "No encontré ese RUC en SUNAT. " : "");
+        }
+        await go(ctx, "correo", { documento_tipo: doc.tipo, documento: doc.valor, sunat: info });
         return next(ctx, askCorreo);
+      }
+      case "ruc_confirmar": {
+        const info = ctx.datos.sunat;
+        if (btn === BTN.rucSi || /^\s*(s[ií]|correcta|correcto|ok)\b/i.test(texto)) {
+          if (!info?.razon_social) return askNombre(ctx);
+          if (ctx.datos.corrigiendo) { await go(ctx, "confirmar", { nombre: info.razon_social }); return askConfirmar(ctx); }
+          await go(ctx, "contacto", { nombre: info.razon_social }); return askContacto(ctx);
+        }
+        if (btn === BTN.rucNo || /^\s*no\b/i.test(texto)) {
+          ctx.datos.sunat = null;
+          await go(ctx, "documento", { sunat: null });
+          return say(ctx, "Revisa el *RUC* y escríbelo de nuevo (11 dígitos).");
+        }
+        return info ? confirmarRuc(ctx, info) : askNombre(ctx);
+      }
+      case "disponibilidad": {
+        const disp = btn === BTN.dispLV || /lunes|l-v|semana/i.test(texto) ? "lun_vie" : btn === BTN.dispSab || /s[aá]bado/i.test(texto) ? "incluye_sab" : null;
+        if (!disp) return askDisponibilidad(ctx);
+        await go(ctx, "horario", { disponibilidad: disp });
+        return askHorario(ctx);
+      }
+      case "horario": {
+        if (!texto || texto.length < 3) return say(ctx, "Indícame el horario de atención, por ejemplo: _9:00 a 17:00_.");
+        await go(ctx, "requisitos", { horario: texto.slice(0, 120) });
+        if (ctx.datos.tipo_donante === "empresa") return askRequisitos(ctx);
+        return next(ctx, askMaterial);
+      }
+      case "requisitos": {
+        const req = btn === BTN.omitir || RE_OMITIR.test(texto) ? null : (texto || null);
+        await go(ctx, "materiales", { requisitos: req ? req.slice(0, 300) : null });
+        return next(ctx, askMaterial);
       }
       case "correo": {
         const v = U.validarCorreo(texto);
@@ -447,8 +518,8 @@ function createFlow({ store, wa, make }) {
         return next(ctx, askReferencia);
       }
       case "referencia":
-        await go(ctx, "materiales", { referencia: btn === BTN.omitir || RE_OMITIR.test(texto) ? null : texto.slice(0, 200) });
-        return next(ctx, askMaterial);
+        await go(ctx, "disponibilidad", { referencia: btn === BTN.omitir || RE_OMITIR.test(texto) ? null : texto.slice(0, 200) });
+        return next(ctx, askDisponibilidad);
 
       case "materiales": {
         let mat = btn && btn.startsWith("mat:") ? btn.slice(4) : (texto && texto.length >= 3 ? texto.trim() : null);
@@ -518,7 +589,7 @@ function createFlow({ store, wa, make }) {
         const campo = btn.slice(4);
         ctx.datos.corrigiendo = true;
         await go(ctx, campo, { corrigiendo: true });
-        const map = { nombre: askNombre, documento: askDocumento, correo: askCorreo, distrito: askDistrito, direccion: askDireccion, cantidad: askCantidad, fecha: askFecha };
+        const map = { nombre: askNombre, documento: askDocumento, correo: askCorreo, distrito: askDistrito, direccion: askDireccion, disponibilidad: askDisponibilidad, cantidad: askCantidad, fecha: askFecha };
         if (campo === "materiales") { await go(ctx, "materiales", { materiales: [] }); return askMaterial(ctx); }
         if (campo === "foto") { await go(ctx, "foto", { fotos: [] }); return askFoto(ctx); }
         return map[campo] ? map[campo](ctx) : askConfirmar(ctx);

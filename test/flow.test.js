@@ -59,7 +59,8 @@ function fakeWa(out) {
 function harness() {
   const store = memStore(); const out = [];
   const make = { send: async () => ({ skipped: true }), enabled: false };
-  const flow = createFlow({ store, wa: fakeWa(out), make });
+  const sunat = { enabled: true, consultar: async (ruc) => ruc === "20100047218" ? { ruc, razon_social: "BANCO DE CREDITO DEL PERU", estado: "ACTIVO", condicion: "HABIDO", direccion: "Av. Centenario 156, La Molina" } : null };
+  const flow = createFlow({ store, wa: fakeWa(out), make, sunat });
   const from = "51999000111";
   const send = async (m) => { out.length = 0; await flow.handle({ from, name: "Ana Prueba", msg: { text: null, buttonId: null, buttonTitle: null, image: null, document: null, location: null, ...m } }); return out; };
   const text = (t) => send({ text: t });
@@ -80,16 +81,22 @@ test("flujo completo: consentimiento → datos → foto → fecha → reserva; l
   await h.btn("menu_donar");
   assert.match(h.last().body, /persona o en nombre de una empresa/);
   await h.btn("td_empresa");
-  assert.match(h.last().body, /razón social/);
-  await h.text("Bergman Rivera SAC");
+  assert.match(h.last().body, /RUC/);         // empresa: primero el RUC
+  await h.text("12345678");                   // DNI no vale para empresa
+  assert.match(h.last().body, /RUC/);
+  await h.text("20100053455");                // RUC válido pero SUNAT no lo encuentra → razón social a mano
+  assert.match(h.last().body, /No encontré ese RUC en SUNAT.*razón social/);
+  await h.text("menú"); await h.btn("menu_donar"); await h.btn("td_empresa");
+  await h.text("20100047218");                // encontrado en SUNAT
+  assert.equal(h.last().type, "buttons"); assert.match(h.last().body, /BANCO DE CREDITO DEL PERU/); assert.match(h.last().body, /empresa correcta/);
+  await h.btn("ruc_no");                      // no es → pide el RUC de nuevo
+  assert.match(h.last().body, /RUC/);
+  await h.text("20100047218");
+  await h.btn("ruc_si");
   assert.match(h.last().body, /persona de contacto/);
   await h.text("hola");                       // saludo suelto no se toma como nombre
   assert.match(h.last().body, /persona de contacto/);
   await h.text("roxana salazar");
-  assert.match(h.last().body, /RUC/);
-  await h.text("12345678");                   // DNI no vale para empresa
-  assert.match(h.last().body, /RUC/);
-  await h.text("20100047218");
   assert.match(h.last().body, /correo/);
   await h.text("roxana@bergman");
   assert.match(h.last().body, /no parece válido/);
@@ -102,6 +109,12 @@ test("flujo completo: consentimiento → datos → foto → fecha → reserva; l
   await h.text("Av. Próceres 1234, of. 301");
   assert.match(h.last().body, /referencia/);
   await h.btn("omitir");
+  assert.match(h.last().body, /días pueden atender/);   // punto 1 del correo de Erika
+  await h.btn("disp_lv");
+  assert.match(h.last().body, /horario/);
+  await h.text("9:00 a 13:00 y 14:00 a 17:00");
+  assert.match(h.last().body, /requisitos de acceso/);  // solo empresas
+  await h.text("SCTR vigente y DNI en recepción");
   assert.equal(h.last().type, "list"); assert.match(h.last().body, /material/);
   await h.btn("mat:Papelería");
   assert.match(h.last().body, /Agregas otro/);
@@ -127,7 +140,9 @@ test("flujo completo: consentimiento → datos → foto → fecha → reserva; l
 
   await h.btn(fechaRow.id);
   assert.match(h.last().body, /Confirmamos la reserva/);
-  assert.match(h.last().body, /Bergman Rivera SAC/);
+  assert.match(h.last().body, /BANCO DE CREDITO DEL PERU/);
+  assert.match(h.last().body, /Lunes a viernes, 9:00 a 13:00/);
+  assert.match(h.last().body, /SCTR vigente/);
   assert.match(h.last().body, /Papelería, Tapas de botella/);
 
   // Corregir el correo y volver al resumen
@@ -142,9 +157,13 @@ test("flujo completo: consentimiento → datos → foto → fecha → reserva; l
   assert.ok(conf, "debe confirmar la reserva");
   assert.equal(h.store.reservas.length, 1);
   const res = h.store.reservas[0];
-  assert.equal(res.empresa, "Bergman Rivera SAC");
+  assert.equal(res.empresa, "BANCO DE CREDITO DEL PERU");
   assert.equal(res.nombre, "Roxana Salazar");
   assert.equal(res.documento, "20100047218");
+  assert.equal(res.sunat.estado, "ACTIVO");
+  assert.equal(res.disponibilidad, "lun_vie");
+  assert.equal(res.horario, "9:00 a 13:00 y 14:00 a 17:00");
+  assert.equal(res.requisitos, "SCTR vigente y DNI en recepción");
   assert.equal(res.correo, "nuevo@bergmanrivera.com");
   assert.equal(res.distrito, "San Juan de Lurigancho");
   assert.deepEqual(res.materiales, ["Papelería", "Tapas de botella"]);
@@ -157,17 +176,21 @@ test("flujo completo: consentimiento → datos → foto → fecha → reserva; l
   await h.btn("prev_usar");
   assert.match(h.last().body, /misma dirección/);
   await h.btn("dir_misma");
+  assert.match(h.last().body, /días pueden atender/);
+  await h.btn("disp_sab"); await h.text("8 a 18"); await h.btn("omitir");
   assert.match(h.last().body, /material/);
   await h.btn("mat:RAEE"); await h.btn("mat_listo"); await h.text("2 monitores"); await h.btn("omitir");
   await h.image(); await h.btn("foto_listo");
   const f2 = h.last().rows[0].id;
   await h.btn(f2); await h.btn("res_confirmar");
   assert.equal(h.store.reservas.length, 2);
-  assert.equal(h.store.reservas[1].empresa, "Bergman Rivera SAC");
+  assert.equal(h.store.reservas[1].empresa, "BANCO DE CREDITO DEL PERU");
   assert.equal(h.store.reservas[1].direccion, "Av. Próceres 1234, of. 301");
+  assert.equal(h.store.reservas[1].requisitos, null);
 
   // Tercera: cupo (2) lleno para esa fecha → no debe aparecer
   await h.btn("menu_donar"); await h.btn("prev_usar"); await h.btn("dir_misma");
+  await h.btn("disp_lv"); await h.text("9 a 17"); await h.btn("omitir");
   await h.btn("mat:RAEE"); await h.btn("mat_listo"); await h.text("1 cpu"); await h.btn("omitir"); await h.image(); await h.btn("foto_listo");
   assert.ok(!h.last().rows.some((r) => r.id === f2), "fecha llena no se ofrece");
 
@@ -198,7 +221,10 @@ test("cupo tomado por otro usuario entre la selección y la confirmación → of
   const h = harness();
   await h.text("hola"); await h.btn("consent_ok"); await h.btn("menu_donar"); await h.btn("td_persona");
   await h.text("Juan Perez"); await h.text("40404040"); await h.text("juan@mail.com"); await h.text("Miraflores");
-  await h.text("Calle Lima 123"); await h.btn("omitir"); await h.btn("mat:Plástico"); await h.btn("mat_listo"); await h.text("5 kg"); await h.btn("omitir");
+  await h.text("Calle Lima 123"); await h.btn("omitir");
+  await h.btn("disp_lv"); await h.text("todo el día");
+  assert.match(h.last().body, /material/);            // persona: no se piden requisitos de acceso
+  await h.btn("mat:Plástico"); await h.btn("mat_listo"); await h.text("5 kg"); await h.btn("omitir");
   await h.image(); await h.btn("foto_listo");
   const iso = h.last().rows[0].id.slice(6);
   await h.btn(`fecha:${iso}`);

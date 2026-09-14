@@ -114,6 +114,10 @@ create table if not exists public.eco_reservas (
   distrito        text not null,
   direccion       text not null,
   referencia      text,
+  disponibilidad  text,                                -- lun_vie | incluye_sab
+  horario         text,                                -- horario de atención del generador
+  requisitos      text,                                -- requisitos de acceso (SCTR, documentos, EPP…)
+  sunat           jsonb,                               -- respuesta normalizada de la consulta RUC
   materiales      text[] not null default '{}',
   cantidad        text,
   comentario      text,
@@ -133,6 +137,11 @@ create table if not exists public.eco_reservas (
   constraint eco_reservas_codigo_key unique (codigo),
   constraint eco_reservas_estado_chk check (estado in ('programado','atendido','no_atendido','cancelado','cerrado'))
 );
+-- Por si la tabla ya existía de una versión anterior:
+alter table public.eco_reservas add column if not exists disponibilidad text;
+alter table public.eco_reservas add column if not exists horario text;
+alter table public.eco_reservas add column if not exists requisitos text;
+alter table public.eco_reservas add column if not exists sunat jsonb;
 create index if not exists eco_reservas_fecha_estado_idx on public.eco_reservas (fecha_recojo, estado);
 create index if not exists eco_reservas_user_idx on public.eco_reservas (user_id, created_at desc);
 create index if not exists eco_reservas_created_idx on public.eco_reservas (created_at desc);
@@ -244,12 +253,14 @@ begin
 
   insert into public.eco_reservas (
     codigo, user_id, tipo_donante, nombre, documento_tipo, documento, empresa, correo,
-    distrito_id, distrito, direccion, referencia, materiales, cantidad, comentario, fotos, fecha_recojo
+    distrito_id, distrito, direccion, referencia, disponibilidad, horario, requisitos, sunat,
+    materiales, cantidad, comentario, fotos, fecha_recojo
   ) values (
     public.eco_nuevo_codigo(),
     p->>'user_id', coalesce(p->>'tipo_donante','persona'), p->>'nombre', p->>'documento_tipo', p->>'documento',
     p->>'empresa', p->>'correo',
     nullif(p->>'distrito_id','')::uuid, p->>'distrito', p->>'direccion', p->>'referencia',
+    p->>'disponibilidad', p->>'horario', p->>'requisitos', case when jsonb_typeof(p->'sunat') = 'object' then p->'sunat' else null end,
     coalesce((select array_agg(x) from jsonb_array_elements_text(coalesce(p->'materiales','[]'::jsonb)) x), '{}'),
     p->>'cantidad', p->>'comentario',
     coalesce((select array_agg(x) from jsonb_array_elements_text(coalesce(p->'fotos','[]'::jsonb)) x), '{}'),

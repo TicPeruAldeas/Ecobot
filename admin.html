@@ -260,6 +260,9 @@ async function openReserva(id) {
       <div><b>Correo</b>${esc(r.correo || "-")}</div>
       <div><b>Distrito</b>${esc(r.distrito)}</div>
       <div><b>Dirección</b>${esc(r.direccion)}${r.referencia ? `<br><span class="muted">${esc(r.referencia)}</span>` : ""}</div>
+      <div><b>Atención</b>${esc({ lun_vie: "Lunes a viernes", incluye_sab: "Incluye sábados" }[r.disponibilidad] || "-")}${r.horario ? ` · ${esc(r.horario)}` : ""}</div>
+      <div><b>Requisitos de acceso</b>${esc(r.requisitos || "-")}</div>
+      ${r.sunat ? `<div><b>SUNAT</b>${esc(r.sunat.razon_social)} <span class="muted">${esc([r.sunat.estado, r.sunat.condicion].filter(Boolean).join(" / "))}</span></div>` : ""}
       <div><b>Materiales</b>${(r.materiales || []).join(", ")}</div>
       <div><b>Cantidad</b>${esc(r.cantidad || "-")}</div>
       <div><b>Comentario</b>${esc(r.comentario || "-")}</div>

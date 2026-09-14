@@ -11,10 +11,11 @@ const { limaParts, addDays, parseIsoDate, limaDateTime } = require("./util");
  * @param {object} p.fechas              mapa iso → { bloqueada, cupo_maximo }
  * @param {object} p.ocupacion           mapa iso → ocupados
  * @param {string} [p.excluir]           iso a excluir (p. ej. la fecha actual al reprogramar)
+ * @param {number[]} [p.excluirDias]     días ISO (1..7) que el donante no puede atender
  * @returns {Array<{iso, libres, cupo}>}
  */
-function fechasDisponibles({ now = new Date(), distrito, config = {}, fechas = {}, ocupacion = {}, excluir = null }) {
-  const dias = new Set((distrito?.dias || []).map(Number));
+function fechasDisponibles({ now = new Date(), distrito, config = {}, fechas = {}, ocupacion = {}, excluir = null, excluirDias = [] }) {
+  const dias = new Set((distrito?.dias || []).map(Number).filter((d) => !excluirDias.includes(d)));
   if (dias.size === 0) return [];
 
   const anticipacionMs = (Number(config.anticipacion_horas) || 24) * 60 * 60 * 1000;

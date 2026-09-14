@@ -246,6 +246,8 @@ module.exports = function createAdminRouter({ store, make, whatsappHelpers }) {
       "ESTADO": r.estado, "TIPO DONANTE": r.tipo_donante, "NOMBRE / CONTACTO": r.nombre, "EMPRESA": r.empresa || "",
       "TIPO DOC": r.documento_tipo || "", "DOCUMENTO": r.documento || "", "CELULAR": r.user_id, "CORREO": r.correo || "",
       "DISTRITO": r.distrito, "DIRECCION": r.direccion, "REFERENCIA": r.referencia || "",
+      "DISPONIBILIDAD": { lun_vie: "Lunes a viernes", incluye_sab: "Incluye sábados" }[r.disponibilidad] || "", "HORARIO": r.horario || "", "REQUISITOS DE ACCESO": r.requisitos || "",
+      "RAZON SOCIAL SUNAT": r.sunat?.razon_social || "", "ESTADO SUNAT": [r.sunat?.estado, r.sunat?.condicion].filter(Boolean).join(" / "),
       "MATERIALES": (r.materiales || []).join(", "), "CANTIDAD": r.cantidad || "", "COMENTARIO": r.comentario || "",
       "FOTOS": (r.fotos || []).join(" "), "KILOS": r.kilos ?? "", "NOTA": r.nota || "", "REPROGRAMACIONES": r.reprogramaciones,
       "FECHA ANTERIOR": r.fecha_anterior ? U.fechaDdMmYyyy(r.fecha_anterior) : "", "ENVIADO A SHEETS": r.make_enviado_at ? "sí" : (r.make_error ? "error" : "no"),
