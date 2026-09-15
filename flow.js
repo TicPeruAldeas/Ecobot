@@ -68,8 +68,12 @@ function createFlow({ store, wa, make, sunat = null }) {
   // ── Pantallas reutilizables ──
   async function showConsent(ctx) {
     const cfg = await store.getConfig();
-    const saludo = ctx.name ? `¡Hola, ${ctx.name.split(" ")[0]}! ` : "";
-    const texto = `${saludo}${cfg.mensaje_bienvenida}\n\n` +
+    // Si el mensaje configurado ya empieza con "¡Hola", se personaliza en vez de duplicar el saludo.
+    const nombre = ctx.name ? ctx.name.split(" ")[0] : null;
+    let bienvenida = String(cfg.mensaje_bienvenida || "");
+    if (/^¡?hola!?/i.test(bienvenida)) bienvenida = bienvenida.replace(/^¡?hola!?/i, nombre ? `¡Hola, ${nombre}!` : "¡Hola!");
+    else if (nombre) bienvenida = `¡Hola, ${nombre}! ${bienvenida}`;
+    const texto = `${bienvenida}\n\n` +
       `Para programar un recojo te pediré tus datos de contacto, la dirección, qué materiales donas y una foto. ` +
       `Usaremos esa información solo para coordinar el recojo y emitir tu constancia, conforme a la Ley N.° 29733 de Protección de Datos Personales.\n\n` +
       `¿Aceptas continuar?`;
