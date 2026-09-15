@@ -67,7 +67,7 @@ function parseCookies(req) {
 const clientIp = (req) => (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").toString().split(",")[0].trim();
 const puede = { admin: 3, logistica: 2, lectura: 1 };
 
-module.exports = function createAdminRouter({ store, make, whatsappHelpers }) {
+module.exports = function createAdminRouter({ store, whatsappHelpers }) {
   const router = express.Router();
   const envUsers = loadEnvUsers();
   if (!SESSION_SECRET) console.warn("⚠️  ADMIN_SESSION_SECRET no definido — el panel /admin no permitirá iniciar sesión.");
@@ -112,7 +112,7 @@ module.exports = function createAdminRouter({ store, make, whatsappHelpers }) {
   });
 
   router.get("/", auth(), (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
-  router.get("/api/me", auth(), (req, res) => res.json({ name: req.admin.name, rol: req.admin.rol, make: make.enabled }));
+  router.get("/api/me", auth(), (req, res) => res.json({ name: req.admin.name, rol: req.admin.rol }));
 
   const wrap = (fn) => (req, res) => fn(req, res).catch((err) => { console.error("❌ admin:", err.message); res.status(500).json({ error: err.code || err.message }); });
 
@@ -148,7 +148,6 @@ module.exports = function createAdminRouter({ store, make, whatsappHelpers }) {
     if (estado === "cancelado" && req.body.avisar) {
       aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* del ${U.fechaLarga(r.fecha_recojo)} fue cancelado${nota ? `: ${nota}` : ""}. Si deseas reprogramar, escribe *menú* y elige *Donar reciclables*.`, [r.empresa || r.nombre, r.codigo, `cancelado${nota ? ` (${nota})` : ""}`]);
     }
-    make.send(r, estado === "cancelado" ? "cancelacion" : "estado").catch((e) => console.warn("Make estado:", e.message));
     res.json({ ...r, aviso });
   }));
   router.post("/api/reservas/:id/reprogramar", auth("logistica"), wrap(async (req, res) => {
@@ -158,14 +157,7 @@ module.exports = function createAdminRouter({ store, make, whatsappHelpers }) {
     await store.audit({ user: req.admin.name, action: "reprogramar", target: r.codigo, ip: clientIp(req), details: { de: r.fecha_anterior, a: fecha } });
     let aviso = null;
     if (avisar) aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* fue reprogramado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Si no te acomoda, escribe *menú* → *Mis recojos*.`, [r.empresa || r.nombre, r.codigo, `reprogramado para el ${U.fechaLarga(r.fecha_recojo)}`]);
-    make.send(r, "reprogramacion").catch((e) => console.warn("Make reprog:", e.message));
     res.json({ ...r, aviso });
-  }));
-  router.post("/api/reservas/:id/reenviar-make", auth("logistica"), wrap(async (req, res) => {
-    const r = await store.getReserva(req.params.id);
-    if (!r) return res.status(404).json({ error: "No existe" });
-    try { await make.send(r, "reserva"); await store.marcarMake(r.id, true); res.json({ ok: true }); }
-    catch (err) { await store.marcarMake(r.id, false, err.message); res.status(502).json({ error: err.message }); }
   }));
   // Fechas disponibles para reprogramar desde el panel (mismas reglas que el bot, sin la anticipación mínima).
   router.get("/api/reservas/:id/fechas", auth("logistica"), wrap(async (req, res) => {
@@ -250,7 +242,7 @@ module.exports = function createAdminRouter({ store, make, whatsappHelpers }) {
       "RAZON SOCIAL SUNAT": r.sunat?.razon_social || "", "ESTADO SUNAT": [r.sunat?.estado, r.sunat?.condicion].filter(Boolean).join(" / "),
       "MATERIALES": (r.materiales || []).join(", "), "CANTIDAD": r.cantidad || "", "COMENTARIO": r.comentario || "",
       "FOTOS": (r.fotos || []).join(" "), "KILOS": r.kilos ?? "", "NOTA": r.nota || "", "REPROGRAMACIONES": r.reprogramaciones,
-      "FECHA ANTERIOR": r.fecha_anterior ? U.fechaDdMmYyyy(r.fecha_anterior) : "", "ENVIADO A SHEETS": r.make_enviado_at ? "sí" : (r.make_error ? "error" : "no"),
+      "FECHA ANTERIOR": r.fecha_anterior ? U.fechaDdMmYyyy(r.fecha_anterior) : "",
     }));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data), "Reservas");

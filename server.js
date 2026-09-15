@@ -12,7 +12,6 @@ const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
 const { createStore } = require("./store");
 const { createWhatsApp, parseIncoming } = require("./whatsapp");
-const { createMake } = require("./make");
 const { createFlow } = require("./flow");
 const { createSunat } = require("./sunat");
 const U = require("./util");
@@ -20,9 +19,8 @@ const U = require("./util");
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const store = createStore(supabase, { bucket: process.env.STORAGE_BUCKET || "eco-fotos" });
 const wa = createWhatsApp({ phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, token: process.env.WHATSAPP_TOKEN });
-const make = createMake({ url: process.env.MAKE_WEBHOOK_URL, secret: process.env.MAKE_WEBHOOK_SECRET });
 const sunat = createSunat();
-const flow = createFlow({ store, wa, make, sunat });
+const flow = createFlow({ store, wa, sunat });
 
 // ── App Secret(s) de Meta: META_APP_SECRET, META_APP_SECRET_2, … ──
 const META_APP_SECRETS = Object.entries(process.env)
@@ -79,9 +77,9 @@ function runSerialized(key, task) {
 }
 
 // ── Panel ──
-app.use("/admin", require("./admin")({ store, wa, make, whatsappHelpers: { notificar } }));
+app.use("/admin", require("./admin")({ store, wa, whatsappHelpers: { notificar } }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, bot: "eco", make: make.enabled, ts: new Date().toISOString() }));
+app.get("/health", (_req, res) => res.json({ ok: true, bot: "eco", ts: new Date().toISOString() }));
 
 // ── Webhook Meta ──
 app.get("/webhook", (req, res) => {
@@ -203,7 +201,7 @@ app.post("/simulate", async (req, res) => {
     downloadMedia: async () => ({ buffer: Buffer.from("fake"), mimeType: "image/jpeg", size: 4 }),
   };
   const simStore = { ...store, uploadFoto: async () => image_url || "https://example.com/foto-simulada.jpg" };
-  const simFlow = createFlow({ store: simStore, wa: fakeWa, make, sunat });
+  const simFlow = createFlow({ store: simStore, wa: fakeWa, sunat });
   const msg = { text: text || null, buttonId: button || null, buttonTitle: button || null, image: image_url ? { id: "sim" } : null, document: null, location: null, type: image_url ? "image" : text ? "text" : "interactive" };
   try {
     await runSerialized(`sim:${user_id}`, () => simFlow.handle({ from: String(user_id), name: name || "Prueba", msg }));
@@ -216,7 +214,7 @@ app.post("/simulate", async (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🚀 ECO en puerto ${PORT} — número ${wa.phoneNumberId}`);
-  console.log(`📄 Make: ${make.enabled ? "activo" : "desactivado"} · Plantilla recordatorio: ${process.env.WA_TEMPLATE_RECORDATORIO || "(ninguna: se intentará texto libre)"}`);
+  console.log(`📄 Plantilla recordatorio: ${process.env.WA_TEMPLATE_RECORDATORIO || "(ninguna: se intentará texto libre)"}`);
   setInterval(sweepRecordatorios, SWEEP_MS);
   setTimeout(sweepRecordatorios, 15000);
 });

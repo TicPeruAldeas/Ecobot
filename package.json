@@ -1,11 +1,11 @@
 {
   "name": "eco-bot",
   "version": "1.0.0",
-  "description": "ECO — bot de WhatsApp de Aldeas Infantiles SOS Perú para donaciones de material reciclable: registro del donante, materiales, foto, fechas por distrito con control de cupos, reprogramación/cancelación, recordatorios, panel admin y envío a Make (Google Sheets).",
+  "description": "ECO — bot de WhatsApp de Aldeas Infantiles SOS Perú para donaciones de material reciclable: registro del donante, materiales, foto, fechas por distrito con control de cupos, reprogramación/cancelación, recordatorios, recordatorios y panel admin. Solo WhatsApp Cloud API + Railway + Supabase.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check flow.js && node --check scheduling.js && node --check whatsapp.js && node --check make.js && node --check admin.js && node --check util.js && node --check store.js && node --check sunat.js",
+    "check": "node --check server.js && node --check flow.js && node --check scheduling.js && node --check whatsapp.js && node --check admin.js && node --check util.js && node --check store.js && node --check sunat.js",
     "test": "npm run check && node --test \"test/*.test.js\""
   },
   "license": "ISC",

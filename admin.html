@@ -115,7 +115,7 @@
       <button class="b sec" onclick="exportar()">Exportar Excel</button>
     </div>
     <div class="wrap"><table>
-      <thead><tr><th>Recojo</th><th>Código</th><th>Donante</th><th>Distrito / dirección</th><th>Materiales</th><th>Estado</th><th>Sheets</th></tr></thead>
+      <thead><tr><th>Recojo</th><th>Código</th><th>Donante</th><th>Distrito / dirección</th><th>Materiales</th><th>Estado</th></tr></thead>
       <tbody id="tReservas"></tbody>
     </table></div>
     <p class="muted" id="rCount"></p>
@@ -237,8 +237,7 @@ async function loadReservas() {
     <td>${esc(r.distrito)}<br><span class="muted">${esc(r.direccion)}</span></td>
     <td>${(r.materiales || []).map((m) => `<span class="chip">${esc(m)}</span>`).join("")}<br><span class="muted">${esc(r.cantidad || "")}</span></td>
     <td><span class="tag ${r.estado}">${r.estado.replace("_", " ")}</span></td>
-    <td>${r.make_enviado_at ? "✅" : r.make_error ? `<span title="${esc(r.make_error)}">⚠️</span>` : "—"}</td>
-  </tr>`).join("") || `<tr><td colspan="7" class="muted">Sin resultados</td></tr>`;
+  </tr>`).join("") || `<tr><td colspan="6" class="muted">Sin resultados</td></tr>`;
   $("#rCount").textContent = `${rows.length} reserva(s)`;
 }
 function exportar() {
@@ -268,7 +267,6 @@ async function openReserva(id) {
       <div><b>Comentario</b>${esc(r.comentario || "-")}</div>
       <div><b>Kilos</b>${r.kilos ?? "-"}</div>
       <div><b>Nota del equipo</b>${esc(r.nota || "-")}</div>
-      <div><b>Google Sheets</b>${r.make_enviado_at ? "enviado " + fHora(r.make_enviado_at) : r.make_error ? "error: " + esc(r.make_error) : "no enviado"}</div>
     </div>
     <div class="fotos">${(r.fotos || []).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy"></a>`).join("")}</div>
     ${op ? `
@@ -281,7 +279,6 @@ async function openReserva(id) {
     </div>
     <div class="actions">
       <button class="b sec" onclick="reprogramarUI('${r.id}')">Reprogramar…</button>
-      <button class="b sec" onclick="reenviarMake('${r.id}')">Reenviar a Sheets</button>
     </div>` : ""}
     <h3 style="font-size:13px;margin:14px 0 4px">Historial</h3>
     ${(r.eventos || []).map((e) => `<div class="ev">${fHora(e.created_at)} · <b>${esc(e.evento)}</b> · ${esc(e.actor)} ${e.detalle && Object.keys(e.detalle).length ? `· <span>${esc(JSON.stringify(e.detalle))}</span>` : ""}</div>`).join("")}
@@ -314,9 +311,6 @@ async function reprogramar(id) {
     toast(r.aviso ? (r.aviso.ok ? "Reprogramado y avisado" : "Reprogramado. No se pudo avisar: " + r.aviso.error) : "Reprogramado", 4000);
     closeModal(); loadReservas();
   } catch (e) { toast({ CUPO_LLENO: "Esa fecha ya no tiene cupo", FECHA_BLOQUEADA: "Esa fecha está bloqueada", MISMA_FECHA: "Es la misma fecha", ESTADO_INVALIDO: "La reserva no está programada" }[e.message] || "Error: " + e.message); }
-}
-async function reenviarMake(id) {
-  try { await api(`/reservas/${id}/reenviar-make`, { method: "POST" }); toast("Enviado a Sheets"); openReserva(id); } catch (e) { toast("Error Make: " + e.message, 5000); }
 }
 
 // ── Calendario ──
@@ -432,7 +426,7 @@ async function saveUsuario(id) {
 // ── Inicio ──
 (async () => {
   ME = await api("/me");
-  $("#who").textContent = `${ME.name} · ${ME.rol}${ME.make ? "" : " · ⚠️ Make desactivado"}`;
+  $("#who").textContent = `${ME.name} · ${ME.rol}`;
   if (ME.rol === "admin") $("#navUsuarios").style.display = "";
   const hoy = hoyIso();
   $("#rDesde").value = addDays(hoy, -30); $("#rHasta").value = addDays(hoy, 60);

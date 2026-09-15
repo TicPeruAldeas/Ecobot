@@ -147,12 +147,6 @@ function createStore(supabase, { bucket = "eco-fotos" } = {}) {
     if (error) throw error;
     return data || [];
   }
-  async function marcarMake(id, ok, errorMsg = null) {
-    const { error } = await supabase.from("eco_reservas").update({
-      make_enviado_at: ok ? new Date().toISOString() : null, make_error: ok ? null : String(errorMsg || "").slice(0, 500),
-    }).eq("id", id);
-    if (error) console.error("⚠️  marcarMake:", error.message);
-  }
 
   // Reservas programadas cuyo recojo empieza dentro de la ventana del recordatorio y aún no fueron avisadas.
   async function reservasParaRecordatorio(desdeIso, hastaIso) {
@@ -247,7 +241,7 @@ function createStore(supabase, { bucket = "eco-fotos" } = {}) {
     getSesion, saveSesion,
     getFechasMap, upsertFecha, getOcupacionMap,
     reservar, reprogramar, cambiarEstado, getReserva, getReservaPorCodigo,
-    reservasActivasDeUsuario, ultimaReservaDeUsuario, addEvento, getEventos, marcarMake,
+    reservasActivasDeUsuario, ultimaReservaDeUsuario, addEvento, getEventos,
     reservasParaRecordatorio, marcarRecordatorio,
     listarReservas, logMensaje, getMensajes, listarConversaciones,
     uploadFoto,

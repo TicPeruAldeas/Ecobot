@@ -129,8 +129,6 @@ create table if not exists public.eco_reservas (
   nota            text,                                -- nota de cierre / observación del equipo
   kilos           numeric,                             -- resultado del recojo (opcional)
   recordatorio_enviado_at timestamptz,
-  make_enviado_at timestamptz,
-  make_error      text,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now(),
   primary key (id),
@@ -138,6 +136,8 @@ create table if not exists public.eco_reservas (
   constraint eco_reservas_estado_chk check (estado in ('programado','atendido','no_atendido','cancelado','cerrado'))
 );
 -- Por si la tabla ya existía de una versión anterior:
+alter table public.eco_reservas drop column if exists make_enviado_at;
+alter table public.eco_reservas drop column if exists make_error;
 alter table public.eco_reservas add column if not exists disponibilidad text;
 alter table public.eco_reservas add column if not exists horario text;
 alter table public.eco_reservas add column if not exists requisitos text;
@@ -150,7 +150,7 @@ create index if not exists eco_reservas_created_idx on public.eco_reservas (crea
 create table if not exists public.eco_reserva_eventos (
   id         uuid not null default gen_random_uuid(),
   reserva_id uuid not null references public.eco_reservas (id) on delete cascade,
-  evento     text not null,        -- creada | reprogramada | cancelada | estado | recordatorio | make
+  evento     text not null,        -- creada | reprogramada | cancelada | estado | recordatorio
   detalle    jsonb not null default '{}'::jsonb,
   actor      text not null default 'donante',   -- donante | sistema | admin:<usuario>
   created_at timestamptz not null default now(),

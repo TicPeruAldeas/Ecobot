@@ -39,7 +39,6 @@ function memStore() {
     reservasActivasDeUsuario: async (u, hoy) => reservas.filter((r) => r.user_id === u && r.estado === "programado" && r.fecha_recojo >= hoy),
     ultimaReservaDeUsuario: async (u) => [...reservas].reverse().find((r) => r.user_id === u) || null,
     addEvento: async (reserva_id, evento) => eventos.push({ reserva_id, evento }),
-    marcarMake: async () => {},
     logMensaje: async (user_id, role, message, metadata) => mensajes.push({ user_id, role, message, metadata }),
     uploadFoto: async () => `https://fotos.test/${++seq}.jpg`,
   };
@@ -58,9 +57,8 @@ function fakeWa(out) {
 
 function harness() {
   const store = memStore(); const out = [];
-  const make = { send: async () => ({ skipped: true }), enabled: false };
   const sunat = { enabled: true, consultar: async (ruc) => ruc === "20100047218" ? { ruc, razon_social: "BANCO DE CREDITO DEL PERU", estado: "ACTIVO", condicion: "HABIDO", direccion: "Av. Centenario 156, La Molina" } : null };
-  const flow = createFlow({ store, wa: fakeWa(out), make, sunat });
+  const flow = createFlow({ store, wa: fakeWa(out), sunat });
   const from = "51999000111";
   const send = async (m) => { out.length = 0; await flow.handle({ from, name: "Ana Prueba", msg: { text: null, buttonId: null, buttonTitle: null, image: null, document: null, location: null, ...m } }); return out; };
   const text = (t) => send({ text: t });

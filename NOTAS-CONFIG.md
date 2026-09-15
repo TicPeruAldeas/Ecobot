@@ -1,7 +1,7 @@
 # ECO — Notas de configuración y puesta en marcha
 
-Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material reciclable. Reemplaza al ECO de Chatfuel + Calendly.
-Última actualización: 2026-09-14.
+Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material reciclable. Reemplaza al ECO de Chatfuel + Calendly + Make. Solo WhatsApp Cloud API + Railway + Supabase; el panel `/admin` sustituye a la hoja de Google.
+Última actualización: 2026-09-15.
 
 > ⚠️ Este archivo **no contiene secretos**. Los valores viven en Railway.
 
@@ -20,10 +20,10 @@ Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material r
 | Foto | Obligatoria (configurable). Se descarga de Meta y se guarda en Supabase Storage (`eco-fotos`, URL pública). |
 | Fechas | Días de ruta del distrito + anticipación mínima (24 h hasta la hora de inicio) + bloqueos + cupos por fecha. Se muestran solo fechas usables. |
 | Reserva | Función SQL `eco_reservar` con lock por fecha: dos personas no pueden tomar el último cupo. Código `ECO-AAMMDD-XXXX`. |
-| Confirmación | Mensaje con código, fecha, dirección y materiales. Envío del registro al **webhook de Make** → hoja *USUARIOS RUC*. |
+| Confirmación | Mensaje con código, fecha, dirección y materiales. La reserva queda en `eco_reservas` y se ve al instante en el panel. |
 | Mis recojos | Reprogramar (libera cupo anterior, toma el nuevo) y cancelar (libera cupo). Todo con trazabilidad en `eco_reserva_eventos`. |
 | Recordatorios | Barrido cada 10 min; avisa N horas antes. Fuera de la ventana de 24 h Meta exige **plantilla aprobada** (ver §5). |
-| Panel `/admin` | Resumen, reservas (estado, kilos, nota, reprogramar, cancelar, reenviar a Sheets), calendario (bloqueos, cupo especial), rutas, conversaciones, configuración, usuarios y auditoría, exportar Excel. |
+| Panel `/admin` | Resumen, reservas (estado, kilos, nota, reprogramar, cancelar), calendario (bloqueos, cupo especial), rutas, conversaciones, configuración, usuarios y auditoría, exportar Excel. |
 
 ---
 
@@ -47,12 +47,10 @@ Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material r
 | `WHATSAPP_TOKEN` | ✅ | Token permanente (system user) para enviar |
 | `ADMIN_SESSION_SECRET` | ✅ | Firma de la cookie del panel (cualquier cadena larga) |
 | `META_APP_SECRET` (`_2`, `_3`…) | recomendada | App Secret de la app de Meta que recibe el webhook; valida la firma |
-| `MAKE_WEBHOOK_URL` | recomendada | Webhook de Make que escribe en la hoja. Sin ella, no se envía nada a Sheets |
-| `MAKE_WEBHOOK_SECRET` | opcional | Se manda como header `x-make-apikey` si Make lo valida |
 | `ADMIN_USERS` | recomendada | `usuario:clave:rol,…` (rol = `admin` \| `logistica` \| `lectura`) |
 | `RUC_API_PROVIDER` | recomendada | `apisnet` (default) \| `apiperu` \| `decolecta` \| `custom`. Proveedor de consulta RUC/SUNAT |
 | `RUC_API_TOKEN` | recomendada | Token del proveedor. Sin token, `apisnet` usa su v1 gratuita (con límite de consultas) |
-| `RUC_API_URL` | solo custom | URL con `{ruc}` (p. ej. el endpoint que hoy usa Make) |
+| `RUC_API_URL` | solo custom | URL con `{ruc}` (otro proveedor con la misma respuesta JSON) |
 | `WA_TEMPLATE_RECORDATORIO` | opcional | Nombre de la plantilla aprobada para recordatorios |
 | `WA_TEMPLATE_RECORDATORIO_PARAMS` | opcional | Orden de los parámetros del cuerpo. Default `nombre,fecha,direccion,codigo` |
 | `WA_TEMPLATE_CAMBIO` | opcional | Plantilla para avisar reprogramación/cancelación hecha desde el panel (params: nombre, código, cambio) |
@@ -91,24 +89,14 @@ Mientras no existan, el bot intenta texto libre; si Meta lo rechaza queda regist
 
 ---
 
-## 6. Make → Google Sheets
+## 6. Datos y reportes (sin Google Sheets)
 
-El bot hace `POST` JSON al `MAKE_WEBHOOK_URL` en cada **reserva**, **reprogramación**, **cancelación** y **cambio de estado**. Claves = encabezados de la hoja *USUARIOS RUC*:
+Toda la información vive en Supabase (`eco_reservas`, `eco_reserva_eventos`, `eco_mensajes`). El panel `/admin` es la vista operativa:
+- **Reservas**: ficha completa con fotos (Supabase Storage, URL pública), historial, SUNAT, estado, kilos y nota.
+- **Exportar Excel** desde la pestaña Reservas con los filtros aplicados (mismo formato de columnas que la antigua hoja, más las nuevas).
+- **Conversaciones**: todos los mensajes que llegan a ECO, por número, con el paso del flujo.
 
-```
-FECHA DE SOLICITUD, CELULAR USUARIO, CORREO USUARIO, RUC, EMPRESA, DISTRITO,
-DIRECCION DE RECOJO, DONACION TIPO, CANTIDAD DE DONACION, COMENTARIO, FOTO,
-ESTADO RESERVA, FECHA RESERVADA, ENLACE GENERADO
-```
-Extras: `CODIGO`, `EVENTO` (`reserva` | `reprogramacion` | `cancelacion` | `estado`), `TIPO DONANTE`, `NOMBRE`, `TIPO DOCUMENTO`, `REFERENCIA`, `DISPONIBILIDAD`, `HORARIO DE ATENCION`, `REQUISITOS DE ACCESO`, `RAZON SOCIAL SUNAT`, `ESTADO SUNAT`, `FOTOS`, `FECHA ANTERIOR`, `KILOS`, `NOTA`, `ID`.
-
-**Fotos en la hoja** (punto 2 del correo de Erika): `FOTO` y `FOTOS` son URLs públicas de Supabase Storage. En Sheets basta una columna con `=IMAGE(K2)` (o `=IMAGE(K2;4;80;80)` para miniatura) para verlas sin entrar a ninguna herramienta; el panel `/admin` también las muestra.
-
-**Certificados EORS y SCTR** (puntos 3 y 4): son automatizaciones del lado de Make/correo. El bot ya entrega todo lo que necesitan (RUC, razón social SUNAT, correo, materiales, fecha, código y `EVENTO`), así que el escenario de Make que hoy envía el certificado puede dispararse con el evento `estado` cuando el panel marque la reserva como *atendido* (con kilos).
-
-En Make: volver a ejecutar *Redetermine data structure* del webhook con un envío de prueba (`POST /simulate` o una reserva real) y mapear las columnas. Recomendado: un **Router** por `EVENTO` — `reserva` → *Add a row*; el resto → *Search rows* por `CODIGO` + *Update a row*.
-Si Make solo hace *Add a row*, cada reprogramación insertará una fila nueva con el mismo `CODIGO` (se puede filtrar en la hoja).
-
+**Certificados EORS / SCTR** (puntos 3 y 4 del correo de Erika): antes los enviaba Make por correo. Ya no hay Make, así que hoy quedan como proceso manual hasta implementar la generación del PDF de constancia desde el panel (y su envío por WhatsApp o correo).
 ---
 
 ## 7. Endpoints
@@ -152,9 +140,8 @@ curl -s -X POST http://localhost:3000/simulate -H "Authorization: Bearer $INGEST
 
 - [ ] Crear y aprobar plantillas `eco_recordatorio` y `eco_cambio` en Meta.
 - [ ] Migrar el número *Hola Eco* de Chatfuel a la app de Meta de ECO.
-- [ ] Reajustar el mapeo del webhook de Make (Router por `EVENTO`).
 - [ ] Definir el texto real de `contacto_humano` en el panel → Configuración.
-- [ ] Configurar `RUC_API_TOKEN` (o `RUC_API_URL` con la API que ya usa Make) para no depender del límite gratuito.
-- [ ] Puntos 3 y 4 del correo de Erika (certificados EORS y SCTR del personal): escenarios en Make disparados por `EVENTO=estado`.
+- [ ] Configurar `RUC_API_TOKEN` (ya configurado: decolecta) para no depender del límite gratuito.
+- [ ] Constancia de donación en PDF generada desde el panel y enviada al donante (WhatsApp o correo). Reemplaza el envío que hacía Make.
 - [ ] Revisar el catálogo de distritos/días en el panel → Rutas (la imagen tenía "Callao" en martes y miércoles).
 - [ ] Arequipa: no incluido (el flujo actual de Chatfuel tenía una hoja aparte). Se puede añadir como distritos con su propia ruta.
