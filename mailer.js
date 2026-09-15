@@ -76,13 +76,80 @@ const PLANTILLAS = {
   },
 };
 
-function createMailer(env = process.env) {
-  const enabled = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
-  const from = env.MAIL_FROM || (env.SMTP_USER ? `ECO · Aldeas Infantiles SOS Perú <${env.SMTP_USER}>` : "");
+// ── Proveedores ──
+//  gmail : API de Gmail por HTTPS con OAuth2 (GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET y un refresh
+//          token obtenido desde el panel → Configuración → "Conectar Gmail", guardado en eco_config).
+//          No usa puertos SMTP, así que funciona en Railway.
+//  smtp  : SMTP_HOST/USER/PASS (M365, Google, Resend…). Requiere salida por 587/465.
+function createMailer(env = process.env, { store = null } = {}) {
+  const provider = env.GOOGLE_CLIENT_ID && env.GOOGLE_CLIENT_SECRET ? "gmail" : env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS ? "smtp" : "none";
+  const enabled = provider !== "none";
   const notifyTo = String(env.MAIL_NOTIFY_TO || "").split(",").map((s) => s.trim()).filter(Boolean);
   const port = Number(env.SMTP_PORT) || 587;
-  if (enabled) console.log(`📧 Correo: ${env.SMTP_HOST}:${port} como ${env.SMTP_USER}${notifyTo.length ? ` · avisos a ${notifyTo.join(", ")}` : ""}`);
-  else console.warn("⚠️  Correo desactivado (faltan SMTP_HOST / SMTP_USER / SMTP_PASS).");
+  if (provider === "smtp") console.log(`📧 Correo: SMTP ${env.SMTP_HOST}:${port} como ${env.SMTP_USER}${notifyTo.length ? ` · avisos a ${notifyTo.join(", ")}` : ""}`);
+  else if (provider === "gmail") console.log(`📧 Correo: API de Gmail (OAuth2)${notifyTo.length ? ` · avisos a ${notifyTo.join(", ")}` : ""}`);
+  else console.warn("⚠️  Correo desactivado (define GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET, o SMTP_HOST/USER/PASS).");
+
+  // ── Gmail API (OAuth2) ──
+  const GOOGLE_SCOPES = ["https://www.googleapis.com/auth/gmail.send", "https://www.googleapis.com/auth/userinfo.email"];
+  let accessCache = { token: null, exp: 0 };
+  async function gmailCreds() {
+    const cfg = store ? await store.getConfig() : {};
+    return { refreshToken: cfg.gmail_refresh_token || env.GMAIL_REFRESH_TOKEN || null, cuenta: cfg.gmail_cuenta || env.GMAIL_SENDER || null };
+  }
+  async function accessToken() {
+    if (accessCache.token && Date.now() < accessCache.exp - 60000) return accessCache.token;
+    const { refreshToken } = await gmailCreds();
+    if (!refreshToken) { const e = new Error("Gmail no conectado: entra al panel → Configuración → Conectar Gmail"); e.code = "GMAIL_NO_TOKEN"; throw e; }
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, refresh_token: refreshToken, grant_type: "refresh_token" }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.access_token) throw new Error(`Google token: ${j.error || res.status} ${j.error_description || ""}`.trim());
+    accessCache = { token: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 };
+    return j.access_token;
+  }
+  async function fromAddress() {
+    if (env.MAIL_FROM) return env.MAIL_FROM;
+    if (provider === "gmail") { const { cuenta } = await gmailCreds(); return cuenta ? `ECO · Aldeas Infantiles SOS Perú <${cuenta}>` : "ECO · Aldeas Infantiles SOS Perú"; }
+    return `ECO · Aldeas Infantiles SOS Perú <${env.SMTP_USER}>`;
+  }
+  async function sendGmail({ to, subject, html, attachments }) {
+    const MailComposer = require("nodemailer/lib/mail-composer");
+    const raw = await new MailComposer({ from: await fromAddress(), to, subject, html, attachments }).compile().build();
+    const token = await accessToken();
+    const res = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
+      method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ raw: raw.toString("base64url") }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) { if (res.status === 401) accessCache = { token: null, exp: 0 }; throw new Error(`Gmail API ${res.status}: ${j.error?.message || JSON.stringify(j).slice(0, 200)}`); }
+    return { ok: true, id: j.id };
+  }
+  // URL de consentimiento y canje del código (los usa el panel).
+  function oauthUrl(redirectUri, state) {
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + new URLSearchParams({
+      client_id: env.GOOGLE_CLIENT_ID, redirect_uri: redirectUri, response_type: "code", scope: GOOGLE_SCOPES.join(" "),
+      access_type: "offline", prompt: "consent", include_granted_scopes: "true", state,
+    });
+  }
+  async function exchangeCode(code, redirectUri) {
+    const res = await fetch("https://oauth2.googleapis.com/token", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET, redirect_uri: redirectUri, grant_type: "authorization_code" }),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.refresh_token) throw new Error(`Google no devolvió refresh_token (${j.error || res.status}: ${j.error_description || "revoca el acceso previo en myaccount.google.com/permissions y reintenta"})`);
+    const who = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", { headers: { Authorization: `Bearer ${j.access_token}` } }).then((r) => r.json()).catch(() => ({}));
+    accessCache = { token: j.access_token, exp: Date.now() + (Number(j.expires_in) || 3600) * 1000 };
+    return { refreshToken: j.refresh_token, email: who.email || null };
+  }
+  async function estado() {
+    if (provider !== "gmail") return { proveedor: provider, conectado: provider === "smtp", cuenta: provider === "smtp" ? env.SMTP_USER : null };
+    const { refreshToken, cuenta } = await gmailCreds();
+    return { proveedor: "gmail", conectado: Boolean(refreshToken), cuenta };
+  }
 
   // Railway no tiene salida IPv6 y nodemailer resuelve el DNS por su cuenta (puede elegir la
   // IPv6 de smtp.gmail.com → ENETUNREACH). Se resuelve la IPv4 a mano y se conecta a ella,
@@ -111,9 +178,10 @@ function createMailer(env = process.env) {
   async function send({ to, subject, html, attachments = [] }) {
     if (!enabled) return { skipped: true };
     if (!to) return { skipped: true, reason: "sin destinatario" };
+    if (provider === "gmail") return sendGmail({ to, subject, html, attachments });
     const transport = await getTransport();
     try {
-      const info = await transport.sendMail({ from, to, subject, html, attachments });
+      const info = await transport.sendMail({ from: await fromAddress(), to, subject, html, attachments });
       return { ok: true, id: info.messageId };
     } catch (err) {
       ipCache.at = 0; // si falló la conexión, re-resolver la próxima vez
@@ -133,14 +201,14 @@ function createMailer(env = process.env) {
   }
 
   return {
-    enabled, from, notifyTo, send, enviar,
+    enabled, provider, notifyTo, send, enviar, oauthUrl, exchangeCode, estado,
     reserva: (r, cb) => enviar("reserva", r.correo, r, {}, cb),
     reprogramacion: (r, cb) => enviar("reprogramacion", r.correo, r, {}, cb),
     recordatorio: (r, cb) => enviar("recordatorio", r.correo, r, {}, cb),
     cancelacion: (r, motivo, cb) => enviar("cancelacion", r.correo, r, { motivo }, cb),
     constancia: (c, pdfBuffer, correo, cb) => enviar("constancia", correo || c.correo, c, { attachments: [{ filename: `Constancia-${String(c.numero).padStart(5, "0")}-${String(c.razon_social).replace(/[^\w\-]+/g, "_").slice(0, 40)}.pdf`, content: pdfBuffer, contentType: "application/pdf" }] }, cb),
     avisoInterno: (r, tipo = "reserva", motivo = null, cb) => notifyTo.length ? enviar("avisoInterno", notifyTo.join(", "), r, { tipo, motivo }, cb) : Promise.resolve({ skipped: true }),
-    verify: async () => { if (!enabled) return false; const t = await getTransport(); try { return await t.verify(); } finally { t.close(); } },
+    verify: async () => { if (!enabled) return false; if (provider === "gmail") { await accessToken(); return true; } const t = await getTransport(); try { return await t.verify(); } finally { t.close(); } },
   };
 }
 

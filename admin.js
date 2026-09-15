@@ -113,7 +113,37 @@ module.exports = function createAdminRouter({ store, mailer, whatsappHelpers }) 
   });
 
   router.get("/", auth(), (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
-  router.get("/api/me", auth(), (req, res) => res.json({ name: req.admin.name, rol: req.admin.rol }));
+  router.get("/api/me", auth(), async (req, res) => res.json({ name: req.admin.name, rol: req.admin.rol, correo: await mailer.estado().catch(() => null) }));
+
+  // ── Conectar Gmail (OAuth2): guarda el refresh token en eco_config ──
+  const redirectUri = (req) => `${req.protocol}://${req.get("host")}/admin/oauth/google/callback`;
+  router.get("/oauth/google/start", auth("admin"), (req, res) => {
+    if (mailer.provider !== "gmail") return res.status(400).send("Define GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET en Railway primero.");
+    const state = signSession({ n: crypto.randomBytes(8).toString("hex"), exp: Date.now() + 10 * 60 * 1000 });
+    res.redirect(mailer.oauthUrl(redirectUri(req), state));
+  });
+  router.get("/oauth/google/callback", auth("admin"), wrap(async (req, res) => {
+    const { code, state, error } = req.query;
+    if (error) return res.redirect(`/admin?gmail=error&msg=${encodeURIComponent(String(error))}`);
+    if (!code || !verifySession(String(state || ""))) return res.redirect("/admin?gmail=error&msg=estado_invalido");
+    try {
+      const { refreshToken, email } = await mailer.exchangeCode(String(code), redirectUri(req));
+      await store.setConfig("gmail_refresh_token", refreshToken);
+      await store.setConfig("gmail_cuenta", email || "");
+      await store.audit({ user: req.admin.name, action: "gmail_conectado", target: email, ip: clientIp(req) });
+      res.redirect("/admin?gmail=ok");
+    } catch (err) {
+      res.redirect(`/admin?gmail=error&msg=${encodeURIComponent(err.message.slice(0, 200))}`);
+    }
+  }));
+  router.post("/api/correo/prueba", auth("admin"), wrap(async (req, res) => {
+    const to = String(req.body?.para || "").trim();
+    if (!to) return res.status(400).json({ error: "Indica un correo" });
+    try {
+      const r = await mailer.send({ to, subject: "Prueba de correo · ECO", html: "<p>Este es un correo de prueba enviado desde el panel de ECO. Si lo recibes, el envío está funcionando.</p>" });
+      res.json(r);
+    } catch (err) { res.status(502).json({ error: err.message }); }
+  }));
 
   const wrap = (fn) => (req, res) => fn(req, res).catch((err) => { console.error("❌ admin:", err.message); res.status(500).json({ error: err.code || err.message }); });
 

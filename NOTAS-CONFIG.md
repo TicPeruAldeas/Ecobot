@@ -60,7 +60,8 @@ Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material r
 | `CONSENT_DAYS` | opcional | Vigencia del consentimiento (30) |
 | `REMINDER_SWEEP_MINUTES` | opcional | Frecuencia del barrido de recordatorios (10) |
 | `INGEST_SECRET` | opcional | Bearer para `POST /simulate` (pruebas sin WhatsApp) |
-| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | recomendadas | Servidor SMTP del dominio (M365: `smtp.office365.com`:587 con SMTP autenticado habilitado en el buzón). Sin ellas, el correo queda desactivado |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | recomendadas | Cliente OAuth de Google Cloud para enviar por la **API de Gmail** (HTTPS). Después, panel → Configuración → *Conectar Gmail* con la cuenta que envía (el refresh token queda en `eco_config`). |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | alternativa | SMTP clásico. En Railway las conexiones SMTP pueden quedar en *Connection timeout*; preferir la API de Gmail. |
 | `MAIL_FROM` | opcional | Remitente visible. Default: el `SMTP_USER` |
 | `MAIL_NOTIFY_TO` | opcional | Correos internos (logística) que reciben aviso de cada reserva nueva, separados por coma |
 
@@ -99,7 +100,7 @@ Toda la información vive en Supabase (`eco_reservas`, `eco_reserva_eventos`, `e
 - **Exportar Excel** desde la pestaña Reservas con los filtros aplicados (mismo formato de columnas que la antigua hoja, más las nuevas).
 - **Conversaciones**: todos los mensajes que llegan a ECO, por número, con el paso del flujo.
 
-**Correo (SMTP desde aldeastic.org.pe)**: al reservar, reprogramar o cancelar, el donante recibe un correo (además del WhatsApp) y logística recibe un aviso interno con todos los datos y las fotos (`MAIL_NOTIFY_TO`). Los correos no dependen de la ventana de 24 h de Meta.
+**Correo (API de Gmail desde aldeastic.org.pe)**: cliente OAuth en Google Cloud (APIs y servicios → Credenciales → ID de cliente OAuth, tipo *Aplicación web*, URI de redirección `https://<app>.up.railway.app/admin/oauth/google/callback`, API de Gmail habilitada, pantalla de consentimiento *Interna* para que el token no caduque). En el panel → Configuración → *Conectar Gmail* se autoriza la cuenta que envía. al reservar, reprogramar o cancelar, el donante recibe un correo (además del WhatsApp) y logística recibe un aviso interno con todos los datos y las fotos (`MAIL_NOTIFY_TO`). Los correos no dependen de la ventana de 24 h de Meta.
 
 **Constancias de donación** (reemplaza el certificado que enviaba Make):
 1. Al marcar un recojo como *atendido* o *cerrado* en el panel, se registran los **kilos por material** (Papel, Cartón, Papel periódico, PET, Plástico mixto, RAEE, Vidrio, Metal, Otro). Se guardan en `eco_reservas.kilos_detalle`.

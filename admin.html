@@ -157,6 +157,10 @@
 
   <!-- CONFIG -->
   <section id="config">
+    <div class="card" style="max-width:820px;margin-bottom:12px" id="correoCard">
+      <b>Correo</b> <span id="correoEstado" class="muted"></span>
+      <div class="actions" id="correoAcciones"></div>
+    </div>
     <div class="card" style="max-width:820px">
       <div id="cfgForm"></div>
       <div class="actions"><button class="b" onclick="saveConfig()">Guardar</button><span class="muted">Los cambios se aplican en el bot en menos de un minuto.</span></div>
@@ -451,7 +455,24 @@ const CFG_LABELS = {
   firmante_nombre: "Constancia: nombre de quien firma", firmante_cargo: "Constancia: cargo de quien firma", organizacion: "Constancia: nombre legal de la organización",
   platos_por_kg: "Constancia: platos de comida por kg reciclado", factores_impacto: "Constancia: factores de impacto por tonelada (JSON)",
 };
+function renderCorreo() {
+  const c = ME.correo;
+  const est = $("#correoEstado"), acc = $("#correoAcciones");
+  if (!c || c.proveedor === "none") { est.textContent = "desactivado. Define GOOGLE_CLIENT_ID y GOOGLE_CLIENT_SECRET (o SMTP_*) en Railway."; acc.innerHTML = ""; return; }
+  if (c.proveedor === "gmail") {
+    est.textContent = c.conectado ? `API de Gmail conectada como ${c.cuenta || "(cuenta desconocida)"}` : "API de Gmail: falta autorizar la cuenta que enviará los correos.";
+    acc.innerHTML = (ME.rol === "admin" ? `<a class="b ${c.conectado ? "sec" : ""}" href="/admin/oauth/google/start" style="text-decoration:none">${c.conectado ? "Volver a conectar" : "Conectar Gmail"}</a>` : "") +
+      (c.conectado && ME.rol === "admin" ? `<input id="pruebaCorreo" placeholder="correo de prueba" style="width:240px"><button class="b sec" onclick="probarCorreo()">Enviar prueba</button>` : "");
+  } else {
+    est.textContent = `SMTP como ${c.cuenta}`;
+    acc.innerHTML = ME.rol === "admin" ? `<input id="pruebaCorreo" placeholder="correo de prueba" style="width:240px"><button class="b sec" onclick="probarCorreo()">Enviar prueba</button>` : "";
+  }
+}
+async function probarCorreo() {
+  try { await api("/correo/prueba", { method: "POST", body: { para: $("#pruebaCorreo").value } }); toast("Correo de prueba enviado", 4000); } catch (e) { toast("Error: " + e.message, 8000); }
+}
 async function loadConfig() {
+  renderCorreo();
   const cfg = await api("/config");
   const keys = [...Object.keys(CFG_LABELS), ...Object.keys(cfg).filter((k) => !CFG_LABELS[k])];
   $("#cfgForm").innerHTML = keys.filter((k) => k in cfg).map((k) => `<div style="margin-bottom:10px"><label style="display:block;font-size:12px;color:var(--muted);margin-bottom:3px">${esc(CFG_LABELS[k] || k)} <code>${k}</code></label>
@@ -491,6 +512,9 @@ async function saveUsuario(id) {
 (async () => {
   ME = await api("/me");
   $("#who").textContent = `${ME.name} · ${ME.rol}`;
+  const q = new URLSearchParams(location.search);
+  if (q.get("gmail") === "ok") { toast("Gmail conectado correctamente", 5000); document.querySelector('#nav button[data-t="config"]').click(); }
+  if (q.get("gmail") === "error") toast("No se pudo conectar Gmail: " + (q.get("msg") || ""), 10000);
   if (ME.rol === "admin") $("#navUsuarios").style.display = "";
   const hoy = hoyIso();
   $("#rDesde").value = addDays(hoy, -30); $("#rHasta").value = addDays(hoy, 60);

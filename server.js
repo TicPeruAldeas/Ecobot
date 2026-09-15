@@ -25,7 +25,7 @@ const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SER
 const store = createStore(supabase, { bucket: process.env.STORAGE_BUCKET || "eco-fotos" });
 const wa = createWhatsApp({ phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, token: process.env.WHATSAPP_TOKEN });
 const sunat = createSunat();
-const mailer = createMailer();
+const mailer = createMailer(process.env, { store });
 const flow = createFlow({ store, wa, sunat, mailer });
 
 // ── App Secret(s) de Meta: META_APP_SECRET, META_APP_SECRET_2, … ──
