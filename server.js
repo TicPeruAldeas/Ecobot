@@ -85,7 +85,7 @@ function runSerialized(key, task) {
 // ── Panel ──
 app.use("/admin", require("./admin")({ store, wa, mailer, whatsappHelpers: { notificar } }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, bot: "eco", correo: mailer.enabled, sunat: sunat.enabled, ts: new Date().toISOString() }));
+app.get("/health", (_req, res) => res.json({ ok: true, bot: "eco", correo: mailer.enabled, sunat: sunat.enabled, uptime_s: Math.round(process.uptime()), ts: new Date().toISOString() }));
 
 // ── Webhook Meta ──
 app.get("/webhook", (req, res) => {
