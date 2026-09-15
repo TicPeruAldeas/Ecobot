@@ -2,6 +2,7 @@
 // (smtp.office365.com:587), Google Workspace, Resend (smtp.resend.com) o cualquier SMTP.
 // Si falta SMTP_HOST o SMTP_USER queda desactivado y todo envío devuelve { skipped: true }.
 const nodemailer = require("nodemailer");
+const dns = require("dns").promises;
 const U = require("./util");
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -79,25 +80,47 @@ function createMailer(env = process.env) {
   const enabled = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
   const from = env.MAIL_FROM || (env.SMTP_USER ? `ECO · Aldeas Infantiles SOS Perú <${env.SMTP_USER}>` : "");
   const notifyTo = String(env.MAIL_NOTIFY_TO || "").split(",").map((s) => s.trim()).filter(Boolean);
-  let transport = null;
-  if (enabled) {
-    const port = Number(env.SMTP_PORT) || 587;
-    transport = nodemailer.createTransport({
-      host: env.SMTP_HOST, port, secure: port === 465,
+  const port = Number(env.SMTP_PORT) || 587;
+  if (enabled) console.log(`📧 Correo: ${env.SMTP_HOST}:${port} como ${env.SMTP_USER}${notifyTo.length ? ` · avisos a ${notifyTo.join(", ")}` : ""}`);
+  else console.warn("⚠️  Correo desactivado (faltan SMTP_HOST / SMTP_USER / SMTP_PASS).");
+
+  // Railway no tiene salida IPv6 y nodemailer resuelve el DNS por su cuenta (puede elegir la
+  // IPv6 de smtp.gmail.com → ENETUNREACH). Se resuelve la IPv4 a mano y se conecta a ella,
+  // manteniendo el nombre del host para TLS (servername) y para el saludo SMTP.
+  let ipCache = { at: 0, ip: null };
+  async function hostIPv4() {
+    if (/^\d+\.\d+\.\d+\.\d+$/.test(env.SMTP_HOST)) return env.SMTP_HOST;
+    if (ipCache.ip && Date.now() - ipCache.at < 10 * 60 * 1000) return ipCache.ip;
+    try {
+      const ips = await dns.resolve4(env.SMTP_HOST);
+      if (ips.length) { ipCache = { at: Date.now(), ip: ips[0] }; return ips[0]; }
+    } catch (err) { console.warn(`⚠️  No se pudo resolver IPv4 de ${env.SMTP_HOST}: ${err.message}`); }
+    return env.SMTP_HOST;
+  }
+  async function getTransport() {
+    const ip = await hostIPv4();
+    return nodemailer.createTransport({
+      host: ip, port, secure: port === 465,
       auth: { user: env.SMTP_USER, pass: env.SMTP_PASS },
       ...(port === 587 ? { requireTLS: true } : {}),
-      connectionTimeout: 15000, greetingTimeout: 15000, socketTimeout: 30000,
+      tls: { servername: env.SMTP_HOST },
+      connectionTimeout: 20000, greetingTimeout: 20000, socketTimeout: 40000,
     });
-    console.log(`📧 Correo: ${env.SMTP_HOST}:${port} como ${env.SMTP_USER}${notifyTo.length ? ` · avisos a ${notifyTo.join(", ")}` : ""}`);
-  } else {
-    console.warn("⚠️  Correo desactivado (faltan SMTP_HOST / SMTP_USER / SMTP_PASS).");
   }
 
   async function send({ to, subject, html, attachments = [] }) {
     if (!enabled) return { skipped: true };
     if (!to) return { skipped: true, reason: "sin destinatario" };
-    const info = await transport.sendMail({ from, to, subject, html, attachments });
-    return { ok: true, id: info.messageId };
+    const transport = await getTransport();
+    try {
+      const info = await transport.sendMail({ from, to, subject, html, attachments });
+      return { ok: true, id: info.messageId };
+    } catch (err) {
+      ipCache.at = 0; // si falló la conexión, re-resolver la próxima vez
+      throw err;
+    } finally {
+      transport.close();
+    }
   }
 
   // Envíos "fire and forget": nunca rompen el flujo; el resultado se registra por callback.
@@ -117,7 +140,7 @@ function createMailer(env = process.env) {
     cancelacion: (r, motivo, cb) => enviar("cancelacion", r.correo, r, { motivo }, cb),
     constancia: (c, pdfBuffer, correo, cb) => enviar("constancia", correo || c.correo, c, { attachments: [{ filename: `Constancia-${String(c.numero).padStart(5, "0")}-${String(c.razon_social).replace(/[^\w\-]+/g, "_").slice(0, 40)}.pdf`, content: pdfBuffer, contentType: "application/pdf" }] }, cb),
     avisoInterno: (r, tipo = "reserva", motivo = null, cb) => notifyTo.length ? enviar("avisoInterno", notifyTo.join(", "), r, { tipo, motivo }, cb) : Promise.resolve({ skipped: true }),
-    verify: () => (enabled ? transport.verify() : Promise.resolve(false)),
+    verify: async () => { if (!enabled) return false; const t = await getTransport(); try { return await t.verify(); } finally { t.close(); } },
   };
 }
 
