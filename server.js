@@ -51,6 +51,14 @@ function verifyMetaSignature(req) {
 const seenMessageIds = new Map();
 const DEDUP_TTL_MS = 5 * 60 * 1000;
 const MAX_AGE_MS = (Number(process.env.MAX_INBOUND_MESSAGE_AGE_SECONDS) || 180) * 1000;
+
+// ── Modo prueba: lista blanca de números ──
+// TEST_ALLOWED_NUMBERS="51999000111,51988777666" → el bot SOLO atiende (y solo escribe a) esos
+// números; al resto los ignora en silencio. Vacío = atiende a todos. Útil mientras el número
+// sigue conectado a Chatfuel.
+const TEST_ALLOWED = new Set(String(process.env.TEST_ALLOWED_NUMBERS || "").split(",").map((s) => s.replace(/\D+/g, "")).filter(Boolean));
+const permitido = (numero) => TEST_ALLOWED.size === 0 || TEST_ALLOWED.has(String(numero).replace(/\D+/g, ""));
+if (TEST_ALLOWED.size > 0) console.warn(`🧪 MODO PRUEBA: solo se atiende a ${[...TEST_ALLOWED].join(", ")}. Quita TEST_ALLOWED_NUMBERS para producción.`);
 function alreadyProcessed(id) {
   if (!id) return false;
   const now = Date.now();
@@ -100,6 +108,7 @@ app.post("/webhook", (req, res) => {
   if (alreadyProcessed(message.id)) { console.log(`⏭️  Duplicado: ${message.id}`); return; }
 
   const from = message.from;
+  if (!permitido(from)) { console.log(`🧪 Ignorado (fuera de la lista de prueba): ${from}`); return; }
   const name = value?.contacts?.[0]?.profile?.name || null;
   const msg = parseIncoming(message);
   if (!msg.text && !msg.buttonId && !msg.image && !msg.document && !msg.location) {
@@ -123,6 +132,7 @@ app.post("/webhook", (req, res) => {
 // ── Notificar a un donante desde el panel (reprogramación/cancelación) ──
 // Fuera de la ventana de 24 h Meta exige plantilla; si hay una configurada se usa.
 async function notificar(userId, texto, templateParams = null) {
+  if (!permitido(userId)) return { ok: false, error: "Número fuera de la lista de prueba (TEST_ALLOWED_NUMBERS)" };
   const tpl = process.env.WA_TEMPLATE_CAMBIO;
   try {
     if (tpl && templateParams) await wa.template(userId, tpl, templateParams, process.env.WA_TEMPLATE_LANG || "es");
@@ -146,6 +156,7 @@ async function sweepRecordatorios() {
     const hasta = U.addDays(hoy, Math.ceil(horas / 24) + 1);
     const pendientes = await store.reservasParaRecordatorio(hoy, hasta);
     for (const r of pendientes) {
+      if (!permitido(r.user_id)) continue;
       const inicio = U.limaDateTime(r.fecha_recojo, cfg.hora_inicio_recojo || "09:00").getTime();
       const faltan = inicio - now.getTime();
       if (faltan <= 0 || faltan > horas * 3600000) continue;
