@@ -7,6 +7,7 @@ const express = require("express");
 const XLSX = require("xlsx");
 const U = require("./util");
 const { fechasDisponibles } = require("./scheduling");
+const C = require("./constancia");
 
 const ROLES = ["admin", "logistica", "lectura"];
 const ESTADOS = ["programado", "atendido", "no_atendido", "cancelado", "cerrado"];
@@ -67,7 +68,7 @@ function parseCookies(req) {
 const clientIp = (req) => (req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "").toString().split(",")[0].trim();
 const puede = { admin: 3, logistica: 2, lectura: 1 };
 
-module.exports = function createAdminRouter({ store, whatsappHelpers }) {
+module.exports = function createAdminRouter({ store, mailer, whatsappHelpers }) {
   const router = express.Router();
   const envUsers = loadEnvUsers();
   if (!SESSION_SECRET) console.warn("⚠️  ADMIN_SESSION_SECRET no definido — el panel /admin no permitirá iniciar sesión.");
@@ -140,13 +141,21 @@ module.exports = function createAdminRouter({ store, whatsappHelpers }) {
     res.json({ ...r, eventos: await store.getEventos(r.id) });
   }));
   router.post("/api/reservas/:id/estado", auth("logistica"), wrap(async (req, res) => {
-    const { estado, nota, kilos } = req.body || {};
+    const { estado, nota, kilos, kilos_detalle } = req.body || {};
     if (!ESTADOS.includes(estado)) return res.status(400).json({ error: "Estado inválido" });
-    const r = await store.cambiarEstado(req.params.id, estado, { nota: nota || null, actor: actor(req), kilos: kilos === "" || kilos == null ? null : Number(kilos) });
-    await store.audit({ user: req.admin.name, action: "estado", target: r.codigo, ip: clientIp(req), details: { estado, nota, kilos } });
+    // kilos_detalle: { "Papel": 10, "Cartón": 25.5 } — solo materiales de la constancia, solo números > 0.
+    let detalle = null;
+    if (kilos_detalle && typeof kilos_detalle === "object") {
+      detalle = {};
+      for (const m of C.MATERIALES) { const n = Number(kilos_detalle[m]); if (Number.isFinite(n) && n > 0) detalle[m] = n; }
+      if (Object.keys(detalle).length === 0) detalle = null;
+    }
+    const r = await store.cambiarEstado(req.params.id, estado, { nota: nota || null, actor: actor(req), kilos: kilos === "" || kilos == null ? null : Number(kilos), kilosDetalle: detalle });
+    await store.audit({ user: req.admin.name, action: "estado", target: r.codigo, ip: clientIp(req), details: { estado, nota, kilos: r.kilos, kilos_detalle: detalle } });
     let aviso = null;
     if (estado === "cancelado" && req.body.avisar) {
       aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* del ${U.fechaLarga(r.fecha_recojo)} fue cancelado${nota ? `: ${nota}` : ""}. Si deseas reprogramar, escribe *menú* y elige *Donar reciclables*.`, [r.empresa || r.nombre, r.codigo, `cancelado${nota ? ` (${nota})` : ""}`]);
+      mailer?.cancelacion(r, nota || null, (err) => store.addEvento(r.id, err ? "correo_error" : "correo", { tipo: "cancelacion", ...(err ? { error: err.message } : { a: r.correo }) }, actor(req)));
     }
     res.json({ ...r, aviso });
   }));
@@ -156,9 +165,87 @@ module.exports = function createAdminRouter({ store, whatsappHelpers }) {
     const r = await store.reprogramar(req.params.id, fecha, actor(req));
     await store.audit({ user: req.admin.name, action: "reprogramar", target: r.codigo, ip: clientIp(req), details: { de: r.fecha_anterior, a: fecha } });
     let aviso = null;
-    if (avisar) aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* fue reprogramado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Si no te acomoda, escribe *menú* → *Mis recojos*.`, [r.empresa || r.nombre, r.codigo, `reprogramado para el ${U.fechaLarga(r.fecha_recojo)}`]);
+    if (avisar) {
+      aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* fue reprogramado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Si no te acomoda, escribe *menú* → *Mis recojos*.`, [r.empresa || r.nombre, r.codigo, `reprogramado para el ${U.fechaLarga(r.fecha_recojo)}`]);
+      mailer?.reprogramacion(r, (err) => store.addEvento(r.id, err ? "correo_error" : "correo", { tipo: "reprogramacion", ...(err ? { error: err.message } : { a: r.correo }) }, actor(req)));
+    }
     res.json({ ...r, aviso });
   }));
+
+  // ── Constancias de donación ──
+  async function configConstancia() {
+    const cfg = await store.getConfig();
+    let factores = C.FACTORES_DEFAULT;
+    try { const f = JSON.parse(cfg.factores_impacto || ""); if (f && typeof f === "object") factores = { ...C.FACTORES_DEFAULT, ...f }; } catch { /* usa default */ }
+    return { cfg, factores, platosPorKg: Number(cfg.platos_por_kg) || C.PLATOS_POR_KG_DEFAULT };
+  }
+  // Calcula el detalle de un donante en un período a partir de sus recojos atendidos.
+  async function armarConstancia({ documento, desde, hasta }) {
+    const reservas = await store.reservasAtendidasDeDonante(documento, desde, hasta);
+    const detalle = C.sumarDetalle(reservas.map((r) => r.kilos_detalle));
+    const { cfg, factores, platosPorKg } = await configConstancia();
+    const impacto = C.calcularImpacto(detalle, factores, platosPorKg);
+    const ultima = reservas[reservas.length - 1];
+    return {
+      reservas, detalle, impacto,
+      sin_detalle: reservas.filter((r) => !r.kilos_detalle || Object.keys(r.kilos_detalle).length === 0).map((r) => r.codigo),
+      razon_social: ultima?.empresa || ultima?.nombre || "", direccion: ultima?.sunat?.direccion || (ultima ? `${ultima.direccion}, ${ultima.distrito}` : ""), correo: ultima?.correo || "",
+      firmante: cfg.firmante_nombre || "", cargo: cfg.firmante_cargo || "", organizacion: cfg.organizacion || undefined,
+    };
+  }
+  router.get("/api/constancias", auth(), wrap(async (req, res) => res.json(await store.listarConstancias({ documento: req.query.documento || undefined }))));
+  // Vista previa (no guarda nada).
+  router.get("/api/constancias/preview", auth(), wrap(async (req, res) => {
+    const { documento, desde, hasta } = req.query;
+    if (!documento || !U.parseIsoDate(desde) || !U.parseIsoDate(hasta)) return res.status(400).json({ error: "Faltan documento, desde o hasta" });
+    const a = await armarConstancia({ documento, desde, hasta });
+    res.json({ ...a, reservas: a.reservas.map((r) => ({ id: r.id, codigo: r.codigo, fecha_recojo: r.fecha_recojo, kilos: r.kilos, kilos_detalle: r.kilos_detalle })) });
+  }));
+  // Emite (guarda con número correlativo) y opcionalmente envía por correo.
+  router.post("/api/constancias", auth("logistica"), wrap(async (req, res) => {
+    const { documento, desde, hasta, enviar, correo, razon_social, direccion, otro_detalle } = req.body || {};
+    if (!documento || !U.parseIsoDate(desde) || !U.parseIsoDate(hasta)) return res.status(400).json({ error: "Faltan documento, desde o hasta" });
+    const a = await armarConstancia({ documento, desde, hasta });
+    if (a.impacto.kg <= 0) return res.status(400).json({ error: "No hay kilos registrados en ese período. Registra los kilos por material al marcar los recojos como atendidos." });
+    const c = await store.crearConstancia({
+      documento, razon_social: razon_social || a.razon_social, direccion: direccion || a.direccion, correo: correo || a.correo,
+      desde, hasta, detalle: a.detalle, total: a.impacto.kg, impacto: a.impacto, reservas: a.reservas.map((r) => r.id), creada_por: req.admin.name,
+    });
+    await store.audit({ user: req.admin.name, action: "constancia", target: String(c.numero), ip: clientIp(req), details: { documento, desde, hasta, total: c.total } });
+    let envio = null;
+    if (enviar) {
+      const pdf = await C.generarPdf({ ...c, fecha: U.limaParts().iso, otro_detalle, firmante: a.firmante, cargo: a.cargo, organizacion: a.organizacion });
+      const destino = correo || c.correo;
+      const r = await mailer.constancia(c, pdf, destino);
+      envio = r.skipped ? { ok: false, error: mailer.enabled ? "Sin correo del donante" : "Correo no configurado (SMTP_*)" } : r;
+      if (r.ok) await store.marcarConstanciaEnviada(c.id, destino);
+    }
+    res.json({ ...c, envio });
+  }));
+  router.get("/api/constancias/:id.pdf", auth(), wrap(async (req, res) => {
+    const c = await store.getConstancia(req.params.id);
+    if (!c) return res.status(404).json({ error: "No existe" });
+    const { cfg } = await configConstancia();
+    const pdf = await C.generarPdf({ ...c, fecha: c.created_at ? U.limaParts(new Date(c.created_at)).iso : U.limaParts().iso, firmante: cfg.firmante_nombre || "", cargo: cfg.firmante_cargo || "", organizacion: cfg.organizacion || undefined });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="Constancia-${String(c.numero).padStart(5, "0")}.pdf"`);
+    res.send(pdf);
+  }));
+  router.post("/api/constancias/:id/enviar", auth("logistica"), wrap(async (req, res) => {
+    const c = await store.getConstancia(req.params.id);
+    if (!c) return res.status(404).json({ error: "No existe" });
+    if (!mailer?.enabled) return res.status(400).json({ error: "Correo no configurado (SMTP_*)" });
+    const destino = (req.body?.correo || c.correo || "").trim();
+    if (!destino) return res.status(400).json({ error: "Indica un correo" });
+    const { cfg } = await configConstancia();
+    const pdf = await C.generarPdf({ ...c, fecha: U.limaParts(new Date(c.created_at)).iso, firmante: cfg.firmante_nombre || "", cargo: cfg.firmante_cargo || "", organizacion: cfg.organizacion || undefined });
+    const r = await mailer.constancia(c, pdf, destino);
+    if (!r.ok) return res.status(502).json({ error: r.error || "No se pudo enviar" });
+    await store.marcarConstanciaEnviada(c.id, destino);
+    await store.audit({ user: req.admin.name, action: "constancia_enviada", target: String(c.numero), ip: clientIp(req), details: { a: destino } });
+    res.json({ ok: true, enviada_a: destino });
+  }));
+  router.get("/api/materiales-constancia", auth(), (_req, res) => res.json(C.MATERIALES));
   // Fechas disponibles para reprogramar desde el panel (mismas reglas que el bot, sin la anticipación mínima).
   router.get("/api/reservas/:id/fechas", auth("logistica"), wrap(async (req, res) => {
     const r = await store.getReserva(req.params.id);

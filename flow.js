@@ -43,7 +43,15 @@ const CAMPOS_CORREGIBLES = [
   { id: "fix:fecha", title: "Fecha de recojo" },
 ];
 
-function createFlow({ store, wa, sunat = null }) {
+function createFlow({ store, wa, sunat = null, mailer = null }) {
+  // Correos fire-and-forget: registran un evento en la reserva y nunca bloquean el flujo.
+  function correo(tipo, reserva, extra) {
+    if (!mailer?.enabled) return;
+    const cb = (err, r) => store.addEvento(reserva.id, err ? "correo_error" : "correo", { tipo, ...(err ? { error: err.message } : { a: reserva.correo }) }, "sistema");
+    if (tipo === "reserva") { mailer.reserva(reserva, cb); mailer.avisoInterno(reserva); }
+    else if (tipo === "reprogramacion") mailer.reprogramacion(reserva, cb);
+    else if (tipo === "cancelacion") mailer.cancelacion(reserva, extra, cb);
+  }
   // ── Respuestas con registro ──
   async function say(ctx, text) {
     await wa.text(ctx.from, text);
@@ -282,6 +290,7 @@ function createFlow({ store, wa, sunat = null }) {
       `Si necesitas cambiar la fecha o cancelar, escribe *menú* y elige *Mis recojos*.\n\n¡Gracias por reciclar con Aldeas Infantiles SOS! 💚`;
     await say(ctx, texto);
     console.log(`📦 Reserva ${reserva.codigo} — ${reserva.distrito} ${reserva.fecha_recojo} (${ctx.from})`);
+    correo("reserva", reserva);
     await go(ctx, "menu", { flujo: null, materiales: [], fotos: [], previa: null });
   }
 
@@ -621,6 +630,7 @@ function createFlow({ store, wa, sunat = null }) {
           try {
             const r = await store.reprogramar(ctx.datos.reserva_id, iso, "donante");
             await say(ctx, `✅ Listo. Tu recojo *${r.codigo}* quedó reprogramado para el *${U.fechaLarga(r.fecha_recojo)}*.\n📍 ${r.direccion}, ${r.distrito}`);
+            correo("reprogramacion", r);
             return showMenu(ctx);
           } catch (err) {
             if (err.code === "CUPO_LLENO" || err.code === "FECHA_BLOQUEADA") return askFecha(ctx, { excluir: ctx.datos.fecha, prefijo: "Ese cupo acaba de ocuparse 😔. " });
@@ -635,6 +645,7 @@ function createFlow({ store, wa, sunat = null }) {
           try {
             const r = await store.cambiarEstado(ctx.datos.reserva_id, "cancelado", { nota: "Cancelado por el donante desde WhatsApp", actor: "donante" });
             await say(ctx, `Tu recojo *${r.codigo}* fue cancelado. Cuando quieras volver a donar, aquí estaré 💚`);
+            correo("cancelacion", r, "Cancelado por el donante desde WhatsApp");
           } catch (err) { console.error("❌ cancelar:", err.message); await say(ctx, "No pude cancelar la reserva. Intenta de nuevo en unos minutos."); }
           return showMenu(ctx);
         }

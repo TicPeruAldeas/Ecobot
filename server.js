@@ -14,13 +14,15 @@ const { createStore } = require("./store");
 const { createWhatsApp, parseIncoming } = require("./whatsapp");
 const { createFlow } = require("./flow");
 const { createSunat } = require("./sunat");
+const { createMailer } = require("./mailer");
 const U = require("./util");
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 const store = createStore(supabase, { bucket: process.env.STORAGE_BUCKET || "eco-fotos" });
 const wa = createWhatsApp({ phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID, token: process.env.WHATSAPP_TOKEN });
 const sunat = createSunat();
-const flow = createFlow({ store, wa, sunat });
+const mailer = createMailer();
+const flow = createFlow({ store, wa, sunat, mailer });
 
 // ── App Secret(s) de Meta: META_APP_SECRET, META_APP_SECRET_2, … ──
 const META_APP_SECRETS = Object.entries(process.env)
@@ -77,9 +79,9 @@ function runSerialized(key, task) {
 }
 
 // ── Panel ──
-app.use("/admin", require("./admin")({ store, wa, whatsappHelpers: { notificar } }));
+app.use("/admin", require("./admin")({ store, wa, mailer, whatsappHelpers: { notificar } }));
 
-app.get("/health", (_req, res) => res.json({ ok: true, bot: "eco", ts: new Date().toISOString() }));
+app.get("/health", (_req, res) => res.json({ ok: true, bot: "eco", correo: mailer.enabled, sunat: sunat.enabled, ts: new Date().toISOString() }));
 
 // ── Webhook Meta ──
 app.get("/webhook", (req, res) => {
@@ -201,7 +203,7 @@ app.post("/simulate", async (req, res) => {
     downloadMedia: async () => ({ buffer: Buffer.from("fake"), mimeType: "image/jpeg", size: 4 }),
   };
   const simStore = { ...store, uploadFoto: async () => image_url || "https://example.com/foto-simulada.jpg" };
-  const simFlow = createFlow({ store: simStore, wa: fakeWa, sunat });
+  const simFlow = createFlow({ store: simStore, wa: fakeWa, sunat, mailer });
   const msg = { text: text || null, buttonId: button || null, buttonTitle: button || null, image: image_url ? { id: "sim" } : null, document: null, location: null, type: image_url ? "image" : text ? "text" : "interactive" };
   try {
     await runSerialized(`sim:${user_id}`, () => simFlow.handle({ from: String(user_id), name: name || "Prueba", msg }));

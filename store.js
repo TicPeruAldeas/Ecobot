@@ -109,10 +109,41 @@ function createStore(supabase, { bucket = "eco-fotos" } = {}) {
     if (error) throw rpcError(error);
     return data;
   }
-  async function cambiarEstado(id, estado, { nota = null, actor = "sistema", kilos = null } = {}) {
-    const { data, error } = await supabase.rpc("eco_cambiar_estado", { p_id: id, p_estado: estado, p_nota: nota, p_actor: actor, p_kilos: kilos });
+  async function cambiarEstado(id, estado, { nota = null, actor = "sistema", kilos = null, kilosDetalle = null } = {}) {
+    const { data, error } = await supabase.rpc("eco_cambiar_estado", { p_id: id, p_estado: estado, p_nota: nota, p_actor: actor, p_kilos: kilos, p_kilos_detalle: kilosDetalle });
     if (error) throw rpcError(error);
     return data;
+  }
+
+  // ── Constancias de donación ──
+  // Reservas atendidas/cerradas de un donante (por documento) con kilos registrados en el período.
+  async function reservasAtendidasDeDonante(documento, desde, hasta) {
+    const { data, error } = await supabase.from("eco_reservas").select("*")
+      .eq("documento", documento).in("estado", ["atendido", "cerrado"])
+      .gte("fecha_recojo", desde).lte("fecha_recojo", hasta).order("fecha_recojo");
+    if (error) throw error;
+    return data || [];
+  }
+  async function crearConstancia(row) {
+    const { data, error } = await supabase.from("eco_constancias").insert(row).select().single();
+    if (error) throw error;
+    return data;
+  }
+  async function getConstancia(id) {
+    const { data, error } = await supabase.from("eco_constancias").select("*").eq("id", id).maybeSingle();
+    if (error) throw error;
+    return data;
+  }
+  async function listarConstancias({ documento, limit = 100 } = {}) {
+    let q = supabase.from("eco_constancias").select("*").order("created_at", { ascending: false }).limit(limit);
+    if (documento) q = q.eq("documento", documento);
+    const { data, error } = await q;
+    if (error) throw error;
+    return data || [];
+  }
+  async function marcarConstanciaEnviada(id, correo) {
+    const { error } = await supabase.from("eco_constancias").update({ enviada_a: correo, enviada_at: new Date().toISOString() }).eq("id", id);
+    if (error) console.error("⚠️  marcarConstanciaEnviada:", error.message);
   }
   async function getReserva(id) {
     const { data, error } = await supabase.from("eco_reservas").select("*").eq("id", id).maybeSingle();
@@ -243,6 +274,7 @@ function createStore(supabase, { bucket = "eco-fotos" } = {}) {
     reservar, reprogramar, cambiarEstado, getReserva, getReservaPorCodigo,
     reservasActivasDeUsuario, ultimaReservaDeUsuario, addEvento, getEventos,
     reservasParaRecordatorio, marcarRecordatorio,
+    reservasAtendidasDeDonante, crearConstancia, getConstancia, listarConstancias, marcarConstanciaEnviada,
     listarReservas, logMensaje, getMensajes, listarConversaciones,
     uploadFoto,
     getAdminUsers, upsertAdminUser, audit, getAudit, resumen,

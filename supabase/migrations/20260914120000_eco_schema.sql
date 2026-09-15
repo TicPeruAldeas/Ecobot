@@ -322,3 +322,66 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 2026-09-15 · Kilos por material al cerrar el recojo, constancias de donación
+-- y correo. (Idempotente: se puede volver a correr el archivo completo.)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+alter table public.eco_reservas add column if not exists kilos_detalle jsonb;   -- { "Papel": 10, "Cartón": 25, ... }
+
+insert into public.eco_config (key, value) values
+  ('factores_impacto', '{"Papel":{"arboles":17,"agua":26500,"energia":4100,"co2":1400},"Cartón":{"arboles":8,"agua":7000,"energia":1500,"co2":800},"Papel periódico":{"arboles":12,"agua":18000,"energia":3000,"co2":1100},"PET (botellas)":{"arboles":0,"agua":1500,"energia":5700,"co2":2000},"Plástico mixto":{"arboles":0,"agua":1000,"energia":5000,"co2":1800},"RAEE":{"arboles":0,"agua":0,"energia":10000,"co2":2500},"Vidrio":{"arboles":0,"agua":0,"energia":1000,"co2":315},"Metal (aluminio)":{"arboles":0,"agua":0,"energia":14000,"co2":3000},"Otro":{"arboles":0,"agua":0,"energia":0,"co2":0}}'),
+  ('platos_por_kg',      '0.186'),
+  ('firmante_nombre',    ''),
+  ('firmante_cargo',     'Director de Recaudación de Fondos'),
+  ('organizacion',       'ALDEAS INFANTILES SOS PERU - ASOCIACION NACIONAL')
+on conflict (key) do nothing;
+
+create sequence if not exists public.eco_constancia_numero_seq;
+
+create table if not exists public.eco_constancias (
+  id           uuid not null default gen_random_uuid(),
+  numero       int  not null default nextval('public.eco_constancia_numero_seq'),
+  documento    text not null,           -- RUC/DNI del donante
+  razon_social text not null,
+  direccion    text,
+  correo       text,
+  desde        date not null,
+  hasta        date not null,
+  detalle      jsonb not null default '{}'::jsonb,   -- { material: kg }
+  total        numeric not null default 0,
+  impacto      jsonb not null default '{}'::jsonb,
+  reservas     uuid[] not null default '{}',
+  enviada_a    text,
+  enviada_at   timestamptz,
+  creada_por   text,
+  created_at   timestamptz not null default now(),
+  primary key (id)
+);
+create index if not exists eco_constancias_documento_idx on public.eco_constancias (documento, created_at desc);
+
+-- Cambio de estado con kilos por material (reemplaza la firma anterior).
+drop function if exists public.eco_cambiar_estado(uuid, text, text, text, numeric);
+create or replace function public.eco_cambiar_estado(p_id uuid, p_estado text, p_nota text default null, p_actor text default 'sistema', p_kilos numeric default null, p_kilos_detalle jsonb default null)
+returns public.eco_reservas language plpgsql as $$
+declare r public.eco_reservas; v_total numeric;
+begin
+  if p_kilos_detalle is not null and jsonb_typeof(p_kilos_detalle) = 'object' then
+    select coalesce(sum((v)::numeric), 0) into v_total from jsonb_each_text(p_kilos_detalle) as t(k, v) where v ~ '^[0-9]+(\.[0-9]+)?$';
+  end if;
+  update public.eco_reservas
+     set estado = p_estado,
+         nota = coalesce(p_nota, nota),
+         kilos_detalle = coalesce(p_kilos_detalle, kilos_detalle),
+         kilos = coalesce(v_total, p_kilos, kilos),
+         updated_at = now()
+   where id = p_id returning * into r;
+  if r.id is null then raise exception 'NO_EXISTE'; end if;
+  insert into public.eco_reserva_eventos (reserva_id, evento, detalle, actor)
+  values (p_id, case when p_estado = 'cancelado' then 'cancelada' else 'estado' end,
+          jsonb_build_object('estado', p_estado, 'nota', p_nota, 'kilos', r.kilos, 'kilos_detalle', p_kilos_detalle), p_actor);
+  return r;
+end $$;
+
+notify pgrst, 'reload schema';

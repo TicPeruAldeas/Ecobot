@@ -265,31 +265,93 @@ async function openReserva(id) {
       <div><b>Materiales</b>${(r.materiales || []).join(", ")}</div>
       <div><b>Cantidad</b>${esc(r.cantidad || "-")}</div>
       <div><b>Comentario</b>${esc(r.comentario || "-")}</div>
-      <div><b>Kilos</b>${r.kilos ?? "-"}</div>
+      <div><b>Kilos recogidos</b>${r.kilos ?? "-"}${r.kilos_detalle ? `<br><span class="muted">${esc(Object.entries(r.kilos_detalle).map(([m, v]) => `${m} ${v}`).join(" · "))}</span>` : ""}</div>
       <div><b>Nota del equipo</b>${esc(r.nota || "-")}</div>
     </div>
     <div class="fotos">${(r.fotos || []).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}" loading="lazy"></a>`).join("")}</div>
     ${op ? `
     <div class="actions">
-      <select id="mEstado">${["programado","atendido","no_atendido","cancelado","cerrado"].map((e) => `<option ${e === r.estado ? "selected" : ""}>${e}</option>`).join("")}</select>
-      <input id="mKilos" type="number" step="0.1" placeholder="kilos" style="width:90px" value="${r.kilos ?? ""}">
+      <select id="mEstado" onchange="toggleKilos()">${["programado","atendido","no_atendido","cancelado","cerrado"].map((e) => `<option ${e === r.estado ? "selected" : ""}>${e}</option>`).join("")}</select>
       <input id="mNota" placeholder="nota / motivo" style="flex:1;min-width:160px">
-      <label style="font-size:12px"><input type="checkbox" id="mAvisar"> avisar por WhatsApp (si cancela)</label>
+      <label style="font-size:12px"><input type="checkbox" id="mAvisar"> avisar por WhatsApp y correo (si cancela)</label>
       <button class="b" onclick="cambiarEstado('${r.id}')">Guardar estado</button>
+    </div>
+    <div id="kilosBox" class="card" style="margin-top:8px;display:none">
+      <b style="font-size:12px">Kilos recogidos por material</b> <span class="muted">(alimentan la constancia de donación)</span>
+      <div class="actions" style="margin-top:6px">${MATERIALES_C.map((m) => `<label style="font-size:12px;display:flex;flex-direction:column;gap:2px">${esc(m)}<input class="kd" data-m="${esc(m)}" type="number" min="0" step="0.1" style="width:96px" value="${r.kilos_detalle?.[m] ?? ""}" oninput="sumKilos()"></label>`).join("")}
+        <label style="font-size:12px;display:flex;flex-direction:column;gap:2px">Total<input id="kdTotal" readonly style="width:96px;background:#f3f4f6" value="${r.kilos ?? ""}"></label>
+      </div>
     </div>
     <div class="actions">
       <button class="b sec" onclick="reprogramarUI('${r.id}')">Reprogramar…</button>
+      ${r.documento ? `<button class="b sec" onclick="constanciaUI('${r.id}')">Constancia de donación…</button>` : ""}
     </div>` : ""}
     <h3 style="font-size:13px;margin:14px 0 4px">Historial</h3>
     ${(r.eventos || []).map((e) => `<div class="ev">${fHora(e.created_at)} · <b>${esc(e.evento)}</b> · ${esc(e.actor)} ${e.detalle && Object.keys(e.detalle).length ? `· <span>${esc(JSON.stringify(e.detalle))}</span>` : ""}</div>`).join("")}
   `);
 }
+const MATERIALES_C = ["Papel", "Cartón", "Papel periódico", "PET (botellas)", "Plástico mixto", "RAEE", "Vidrio", "Metal (aluminio)", "Otro"];
+function toggleKilos() { const e = $("#mEstado")?.value; const box = $("#kilosBox"); if (box) box.style.display = e === "atendido" || e === "cerrado" ? "" : "none"; }
+function sumKilos() { let t = 0; document.querySelectorAll(".kd").forEach((i) => { t += Number(i.value) || 0; }); $("#kdTotal").value = t ? Math.round(t * 100) / 100 : ""; }
+function leerKilos() { const d = {}; document.querySelectorAll(".kd").forEach((i) => { const n = Number(i.value); if (n > 0) d[i.dataset.m] = n; }); return Object.keys(d).length ? d : null; }
 async function cambiarEstado(id) {
   try {
-    const r = await api(`/reservas/${id}/estado`, { method: "POST", body: { estado: $("#mEstado").value, nota: $("#mNota").value, kilos: $("#mKilos").value, avisar: $("#mAvisar").checked } });
+    const r = await api(`/reservas/${id}/estado`, { method: "POST", body: { estado: $("#mEstado").value, nota: $("#mNota").value, kilos_detalle: leerKilos(), avisar: $("#mAvisar").checked } });
     toast(r.aviso ? (r.aviso.ok ? "Guardado y avisado por WhatsApp" : "Guardado. No se pudo avisar: " + r.aviso.error) : "Estado guardado", 4000);
     closeModal(); loadReservas();
   } catch (e) { toast("Error: " + e.message); }
+}
+// ── Constancia de donación ──
+async function constanciaUI(id) {
+  const r = await api(`/reservas/${id}`);
+  const hoy = hoyIso();
+  const emitidas = await api(`/constancias?documento=${encodeURIComponent(r.documento)}`);
+  openModal(`<h2>Constancia de donación · ${esc(r.empresa || r.nombre)}</h2>
+    <p class="muted">Suma los kilos por material de todos los recojos <b>atendidos o cerrados</b> del documento ${esc(r.documento)} en el período. Si un recojo no tiene kilos registrados, no suma.</p>
+    <div class="actions">
+      <label style="font-size:12px">Desde <input type="date" id="cDesdeC" value="${hoy.slice(0, 4)}-01-01"></label>
+      <label style="font-size:12px">Hasta <input type="date" id="cHastaC" value="${hoy}"></label>
+      <button class="b sec" onclick="constanciaPreview('${esc(r.documento)}')">Vista previa</button>
+    </div>
+    <div id="cPreview"></div>
+    <div class="actions">
+      <label style="font-size:12px;flex:1;min-width:220px">Razón social en la constancia<input id="cRazon" value="${esc(r.sunat?.razon_social || r.empresa || r.nombre)}" style="width:100%"></label>
+      <label style="font-size:12px;flex:1;min-width:220px">Domicilio<input id="cDir" value="${esc(r.sunat?.direccion || `${r.direccion}, ${r.distrito}`)}" style="width:100%"></label>
+    </div>
+    <div class="actions">
+      <label style="font-size:12px;flex:1;min-width:220px">Correo del donante<input id="cCorreo" value="${esc(r.correo || "")}" style="width:100%"></label>
+      <label style="font-size:12px;flex:1;min-width:160px">Detalle de "Otro" (opcional)<input id="cOtro" style="width:100%"></label>
+    </div>
+    <div class="actions">
+      <button class="b" onclick="constanciaEmitir('${esc(r.documento)}', false)">Emitir y descargar PDF</button>
+      <button class="b" onclick="constanciaEmitir('${esc(r.documento)}', true)">Emitir y enviar por correo</button>
+      <button class="b sec" onclick="openReserva('${r.id}')">Volver</button>
+    </div>
+    ${emitidas.length ? `<h3 style="font-size:13px;margin:14px 0 4px">Constancias emitidas a este donante</h3>${emitidas.map((c) => `<div class="ev">N.° <b>${String(c.numero).padStart(5, "0")}</b> · ${fLarga(c.desde)} → ${fLarga(c.hasta)} · ${c.total} kg · ${fHora(c.created_at)} por ${esc(c.creada_por || "")} ${c.enviada_at ? `· enviada a ${esc(c.enviada_a)}` : ""}
+      · <a href="/admin/api/constancias/${c.id}.pdf" target="_blank">PDF</a> · <a href="#" onclick="constanciaReenviar('${c.id}');return false">enviar por correo</a></div>`).join("")}` : ""}`);
+  constanciaPreview(r.documento);
+}
+async function constanciaPreview(documento) {
+  try {
+    const p = await api(`/constancias/preview?documento=${encodeURIComponent(documento)}&desde=${$("#cDesdeC").value}&hasta=${$("#cHastaC").value}`);
+    const filas = Object.entries(p.detalle).map(([m, v]) => `<tr><td>${esc(m)}</td><td style="text-align:right">${v}</td></tr>`).join("");
+    $("#cPreview").innerHTML = `<div class="two" style="margin:8px 0">
+      <table><thead><tr><th>Material</th><th style="text-align:right">kg</th></tr></thead><tbody>${filas || `<tr><td colspan="2" class="muted">Sin kilos registrados en el período</td></tr>`}<tr><th>Total</th><th style="text-align:right">${p.impacto.kg}</th></tr></tbody></table>
+      <div class="card"><b style="font-size:12px">Impacto que irá en la constancia</b><div class="muted" style="margin-top:6px">🌳 ${p.impacto.arboles} árboles<br>💧 ${p.impacto.agua.toLocaleString("es-PE")} m³ de agua<br>⚡ ${p.impacto.energia.toLocaleString("es-PE")} kWh<br>🌍 ${p.impacto.co2.toLocaleString("es-PE")} kg CO₂<br>🍽️ ${p.impacto.platos} platos</div>
+      <div class="muted" style="margin-top:6px">${p.reservas.length} recojo(s) en el período${p.sin_detalle.length ? `<br>⚠️ Sin kilos: ${esc(p.sin_detalle.join(", "))}` : ""}</div></div></div>`;
+  } catch (e) { $("#cPreview").innerHTML = `<p class="muted">Error: ${esc(e.message)}</p>`; }
+}
+async function constanciaEmitir(documento, enviar) {
+  try {
+    const c = await api("/constancias", { method: "POST", body: { documento, desde: $("#cDesdeC").value, hasta: $("#cHastaC").value, enviar, correo: $("#cCorreo").value, razon_social: $("#cRazon").value, direccion: $("#cDir").value, otro_detalle: $("#cOtro").value } });
+    if (enviar) toast(c.envio?.ok ? `Constancia N.° ${c.numero} enviada a ${$("#cCorreo").value}` : `Constancia N.° ${c.numero} emitida, pero no se envió: ${c.envio?.error || ""}`, 6000);
+    else { toast(`Constancia N.° ${c.numero} emitida`); window.open(`/admin/api/constancias/${c.id}.pdf`, "_blank"); }
+  } catch (e) { toast("Error: " + e.message, 6000); }
+}
+async function constanciaReenviar(id) {
+  const correo = prompt("Enviar la constancia al correo:", $("#cCorreo")?.value || "");
+  if (!correo) return;
+  try { await api(`/constancias/${id}/enviar`, { method: "POST", body: { correo } }); toast("Constancia enviada a " + correo, 4000); } catch (e) { toast("Error: " + e.message, 6000); }
 }
 async function reprogramarUI(id) {
   const fechas = await api(`/reservas/${id}/fechas`);
@@ -386,6 +448,8 @@ const CFG_LABELS = {
   cupos_por_fecha: "Cupos por fecha (recojos por día)", anticipacion_horas: "Anticipación mínima (horas)", hora_inicio_recojo: "Hora de inicio del recojo (HH:MM)",
   horizonte_dias: "Horizonte de fechas (días)", max_fechas: "Fechas a mostrar al donante", recordatorio_horas: "Recordatorio (horas antes)",
   foto_obligatoria: "Foto obligatoria (1 = sí, 0 = no)", materiales: "Materiales (separados por |)", contacto_humano: "Texto de contacto humano", mensaje_bienvenida: "Mensaje de bienvenida",
+  firmante_nombre: "Constancia: nombre de quien firma", firmante_cargo: "Constancia: cargo de quien firma", organizacion: "Constancia: nombre legal de la organización",
+  platos_por_kg: "Constancia: platos de comida por kg reciclado", factores_impacto: "Constancia: factores de impacto por tonelada (JSON)",
 };
 async function loadConfig() {
   const cfg = await api("/config");

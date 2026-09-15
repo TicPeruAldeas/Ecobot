@@ -23,7 +23,7 @@ Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material r
 | Confirmación | Mensaje con código, fecha, dirección y materiales. La reserva queda en `eco_reservas` y se ve al instante en el panel. |
 | Mis recojos | Reprogramar (libera cupo anterior, toma el nuevo) y cancelar (libera cupo). Todo con trazabilidad en `eco_reserva_eventos`. |
 | Recordatorios | Barrido cada 10 min; avisa N horas antes. Fuera de la ventana de 24 h Meta exige **plantilla aprobada** (ver §5). |
-| Panel `/admin` | Resumen, reservas (estado, kilos, nota, reprogramar, cancelar), calendario (bloqueos, cupo especial), rutas, conversaciones, configuración, usuarios y auditoría, exportar Excel. |
+| Panel `/admin` | Resumen, reservas (estado, kilos por material, nota, reprogramar, cancelar, constancia de donación en PDF por correo), calendario (bloqueos, cupo especial), rutas, conversaciones, configuración, usuarios y auditoría, exportar Excel. |
 
 ---
 
@@ -60,6 +60,9 @@ Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material r
 | `CONSENT_DAYS` | opcional | Vigencia del consentimiento (30) |
 | `REMINDER_SWEEP_MINUTES` | opcional | Frecuencia del barrido de recordatorios (10) |
 | `INGEST_SECRET` | opcional | Bearer para `POST /simulate` (pruebas sin WhatsApp) |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` | recomendadas | Servidor SMTP del dominio (M365: `smtp.office365.com`:587 con SMTP autenticado habilitado en el buzón). Sin ellas, el correo queda desactivado |
+| `MAIL_FROM` | opcional | Remitente visible. Default: el `SMTP_USER` |
+| `MAIL_NOTIFY_TO` | opcional | Correos internos (logística) que reciben aviso de cada reserva nueva, separados por coma |
 
 ---
 
@@ -96,14 +99,22 @@ Toda la información vive en Supabase (`eco_reservas`, `eco_reserva_eventos`, `e
 - **Exportar Excel** desde la pestaña Reservas con los filtros aplicados (mismo formato de columnas que la antigua hoja, más las nuevas).
 - **Conversaciones**: todos los mensajes que llegan a ECO, por número, con el paso del flujo.
 
-**Certificados EORS / SCTR** (puntos 3 y 4 del correo de Erika): antes los enviaba Make por correo. Ya no hay Make, así que hoy quedan como proceso manual hasta implementar la generación del PDF de constancia desde el panel (y su envío por WhatsApp o correo).
+**Correo (SMTP desde aldeastic.org.pe)**: al reservar, reprogramar o cancelar, el donante recibe un correo (además del WhatsApp) y logística recibe un aviso interno con todos los datos y las fotos (`MAIL_NOTIFY_TO`). Los correos no dependen de la ventana de 24 h de Meta.
+
+**Constancias de donación** (reemplaza el certificado que enviaba Make):
+1. Al marcar un recojo como *atendido* o *cerrado* en el panel, se registran los **kilos por material** (Papel, Cartón, Papel periódico, PET, Plástico mixto, RAEE, Vidrio, Metal, Otro). Se guardan en `eco_reservas.kilos_detalle`.
+2. En la ficha → *Constancia de donación…* se elige el período; el panel suma los kilos de todos los recojos atendidos del mismo RUC/DNI, calcula el impacto (árboles, agua, energía, CO₂, platos) con los factores por tonelada de la hoja "Valores en donación" (`eco_config.factores_impacto`, editables) y muestra la vista previa.
+3. *Emitir y descargar PDF* o *Emitir y enviar por correo*: crea la constancia con número correlativo en `eco_constancias` y genera el PDF con el mismo texto de la constancia oficial. Las emitidas quedan listadas y se pueden reenviar.
+4. Configurar en el panel → Configuración: `firmante_nombre`, `firmante_cargo`, `organizacion`, `platos_por_kg`.
+
+**SCTR del personal** (punto 4 del correo de Erika): fuera del alcance del bot; el panel ya muestra los requisitos de acceso que pidió el generador.
 ---
 
 ## 7. Endpoints
 
 | Método | Ruta | Qué hace |
 |---|---|---|
-| GET | `/health` | Estado del servicio |
+| GET | `/health` | Estado del servicio (indica si correo y SUNAT están activos) |
 | GET/POST | `/webhook` | Verificación y mensajes de Meta |
 | POST | `/simulate` | Simula un mensaje: `{ "user_id": "519…", "text": "hola" }` o `{ "button": "consent_ok" }` o `{ "image_url": "…" }`. Header `Authorization: Bearer <INGEST_SECRET>`. Devuelve las respuestas del bot. |
 | — | `/admin` | Panel (login con `ADMIN_USERS` o tabla `eco_admin_users`) |
@@ -142,6 +153,8 @@ curl -s -X POST http://localhost:3000/simulate -H "Authorization: Bearer $INGEST
 - [ ] Migrar el número *Hola Eco* de Chatfuel a la app de Meta de ECO.
 - [ ] Definir el texto real de `contacto_humano` en el panel → Configuración.
 - [ ] Configurar `RUC_API_TOKEN` (ya configurado: decolecta) para no depender del límite gratuito.
-- [ ] Constancia de donación en PDF generada desde el panel y enviada al donante (WhatsApp o correo). Reemplaza el envío que hacía Make.
+- [ ] Habilitar SMTP autenticado en el buzón de aldeastic.org.pe (o contraseña de aplicación) y cargar `SMTP_*` en Railway.
+- [ ] Definir `firmante_nombre` en el panel → Configuración para que la constancia salga firmada.
+- [ ] (Opcional) Logo de Aldeas en el PDF de la constancia y en los correos.
 - [ ] Revisar el catálogo de distritos/días en el panel → Rutas (la imagen tenía "Callao" en martes y miércoles).
 - [ ] Arequipa: no incluido (el flujo actual de Chatfuel tenía una hoja aparte). Se puede añadir como distritos con su propia ruta.
