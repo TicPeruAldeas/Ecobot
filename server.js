@@ -7,6 +7,10 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// Railway no tiene salida IPv6: si un host (p. ej. smtp.gmail.com) resuelve primero a IPv6,
+// la conexión falla con ENETUNREACH. Preferir IPv4 en todas las resoluciones DNS.
+require("dns").setDefaultResultOrder("ipv4first");
+
 const crypto = require("crypto");
 const express = require("express");
 const { createClient } = require("@supabase/supabase-js");
