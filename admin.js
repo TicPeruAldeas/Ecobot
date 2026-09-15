@@ -113,6 +113,8 @@ module.exports = function createAdminRouter({ store, mailer, whatsappHelpers }) 
   });
 
   router.get("/", auth(), (_req, res) => res.sendFile(path.join(__dirname, "admin.html")));
+  const wrap = (fn) => (req, res) => fn(req, res).catch((err) => { console.error("❌ admin:", err.message); res.status(500).json({ error: err.code || err.message }); });
+
   router.get("/api/me", auth(), async (req, res) => res.json({ name: req.admin.name, rol: req.admin.rol, correo: await mailer.estado().catch(() => null) }));
 
   // ── Conectar Gmail (OAuth2): guarda el refresh token en eco_config ──
@@ -145,7 +147,6 @@ module.exports = function createAdminRouter({ store, mailer, whatsappHelpers }) 
     } catch (err) { res.status(502).json({ error: err.message }); }
   }));
 
-  const wrap = (fn) => (req, res) => fn(req, res).catch((err) => { console.error("❌ admin:", err.message); res.status(500).json({ error: err.code || err.message }); });
 
   // ── Resumen ──
   router.get("/api/resumen", auth(), wrap(async (req, res) => {
