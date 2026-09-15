@@ -110,7 +110,13 @@ function createStore(supabase, { bucket = "eco-fotos" } = {}) {
     return data;
   }
   async function cambiarEstado(id, estado, { nota = null, actor = "sistema", kilos = null, kilosDetalle = null } = {}) {
-    const { data, error } = await supabase.rpc("eco_cambiar_estado", { p_id: id, p_estado: estado, p_nota: nota, p_actor: actor, p_kilos: kilos, p_kilos_detalle: kilosDetalle });
+    const args = { p_id: id, p_estado: estado, p_nota: nota, p_actor: actor, p_kilos: kilos };
+    let { data, error } = await supabase.rpc("eco_cambiar_estado", { ...args, p_kilos_detalle: kilosDetalle });
+    // Compatibilidad: si la base aún tiene la función sin p_kilos_detalle (migración no re-ejecutada).
+    if (error && /p_kilos_detalle|PGRST202|Could not find the function/i.test(String(error.message))) {
+      console.warn("⚠️  eco_cambiar_estado sin p_kilos_detalle — vuelve a correr la migración en Supabase para registrar kilos por material.");
+      ({ data, error } = await supabase.rpc("eco_cambiar_estado", args));
+    }
     if (error) throw rpcError(error);
     return data;
   }
