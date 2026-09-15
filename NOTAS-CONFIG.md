@@ -22,7 +22,7 @@ Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material r
 | Reserva | Función SQL `eco_reservar` con lock por fecha: dos personas no pueden tomar el último cupo. Código `ECO-AAMMDD-XXXX`. |
 | Confirmación | Mensaje con código, fecha, dirección y materiales. La reserva queda en `eco_reservas` y se ve al instante en el panel. |
 | Mis recojos | Reprogramar (libera cupo anterior, toma el nuevo) y cancelar (libera cupo). Todo con trazabilidad en `eco_reserva_eventos`. |
-| Recordatorios | Barrido cada 10 min; avisa N horas antes. Fuera de la ventana de 24 h Meta exige **plantilla aprobada** (ver §5). |
+| Recordatorios | Barrido cada 10 min; avisa N horas antes (`recordatorio_horas`, default 24) por **WhatsApp y por correo**. El correo llega siempre; por WhatsApp, fuera de la ventana de 24 h Meta exige **plantilla aprobada** (ver §5). |
 | Panel `/admin` | Resumen, reservas (estado, kilos por material, nota, reprogramar, cancelar, constancia de donación en PDF por correo), calendario (bloqueos, cupo especial), rutas, conversaciones, configuración, usuarios y auditoría, exportar Excel. |
 
 ---

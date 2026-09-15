@@ -163,6 +163,8 @@ async function sweepRecordatorios() {
       const nombre = r.empresa || r.nombre;
       const texto = `Hola ${nombre} 👋 Te recordamos tu recojo de reciclaje *${r.codigo}* programado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Ten los materiales listos. Si necesitas cambiar la fecha, escribe *menú* → *Mis recojos*.`;
       const tpl = process.env.WA_TEMPLATE_RECORDATORIO;
+      const resultado = { whatsapp: null, correo: null };
+      // 1) WhatsApp (plantilla si existe; si no, texto libre que solo llega dentro de la ventana de 24 h)
       try {
         if (tpl) {
           const campos = (process.env.WA_TEMPLATE_RECORDATORIO_PARAMS || "nombre,fecha,direccion,codigo").split(",").map((s) => s.trim());
@@ -172,13 +174,19 @@ async function sweepRecordatorios() {
           await wa.text(r.user_id, texto);
         }
         await store.logMensaje(r.user_id, "assistant", texto, { origen: "recordatorio", reserva: r.codigo });
-        await store.marcarRecordatorio(r.id, { ok: true, via: tpl ? "template" : "text" });
-        console.log(`⏰ Recordatorio enviado ${r.codigo} → ${r.user_id}`);
+        resultado.whatsapp = { ok: true, via: tpl ? "template" : "text" };
       } catch (err) {
-        // Se marca igual para no reintentar en cada barrido (queda el error en el evento).
-        console.warn(`⚠️  Recordatorio ${r.codigo} falló: ${err.message.slice(0, 160)}`);
-        await store.marcarRecordatorio(r.id, { ok: false, error: err.message.slice(0, 200) });
+        console.warn(`⚠️  Recordatorio WhatsApp ${r.codigo} falló: ${err.message.slice(0, 160)}`);
+        resultado.whatsapp = { ok: false, error: err.message.slice(0, 200) };
       }
+      // 2) Correo (no depende de la ventana de 24 h)
+      if (mailer.enabled && r.correo) {
+        const m = await mailer.recordatorio(r);
+        resultado.correo = m.ok ? { ok: true, a: r.correo } : { ok: false, error: m.error || "no enviado" };
+      }
+      // Se marca aunque falle, para no reintentar en cada barrido (el detalle queda en el historial de la reserva).
+      await store.marcarRecordatorio(r.id, resultado);
+      console.log(`⏰ Recordatorio ${r.codigo} → WhatsApp ${resultado.whatsapp?.ok ? "✅" : "❌"}${resultado.correo ? ` · correo ${resultado.correo.ok ? "✅" : "❌"}` : ""}`);
     }
   } catch (err) {
     console.error("❌ sweepRecordatorios:", err.message);

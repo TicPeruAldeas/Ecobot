@@ -36,5 +36,8 @@ test("mailer desactivado sin SMTP y plantillas con datos", async () => {
   const t = PLANTILLAS.reserva(r);
   assert.match(t.subject, /ECO-1/);
   assert.match(t.html, /jueves 17 de septiembre/);
+  const rec = PLANTILLAS.recordatorio({ ...r, requisitos: "SCTR" });
+  assert.match(rec.subject, /Recordatorio/);
+  assert.match(rec.html, /SCTR/);
   assert.match(PLANTILLAS.constancia({ numero: 3, razon_social: "ACME", total: 120, desde: "2026-01-01", hasta: "2026-06-30" }).subject, /00003/);
 });

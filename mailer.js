@@ -45,6 +45,10 @@ const PLANTILLAS = {
     subject: `Recojo ${r.codigo} reprogramado para el ${U.fechaLarga(r.fecha_recojo)}`,
     html: layout({ titulo: "Tu recojo fue reprogramado", cuerpo: `${saludo(r)}<p>La nueva fecha de tu recojo es el <b>${esc(U.fechaLarga(r.fecha_recojo))}</b>${r.fecha_anterior ? ` (antes: ${esc(U.fechaLarga(r.fecha_anterior))})` : ""}.</p>${datosRecojo(r)}` }),
   }),
+  recordatorio: (r) => ({
+    subject: `Recordatorio: mañana pasamos por tu reciclaje · ${r.codigo}`,
+    html: layout({ titulo: "Tu recojo es pronto", cuerpo: `${saludo(r)}<p>Te recordamos que tu recojo de materiales reciclables está programado para el <b>${esc(U.fechaLarga(r.fecha_recojo))}</b>.</p>${datosRecojo(r)}<p>Ten los materiales listos y accesibles${r.requisitos ? `, y coordina el acceso de nuestro personal (${esc(r.requisitos)})` : ""}. Si necesitas cambiar la fecha, escribe <b>menú</b> en WhatsApp y elige <b>Mis recojos</b>.</p>` }),
+  }),
   cancelacion: (r, extra = {}) => ({
     subject: `Recojo ${r.codigo} cancelado`,
     html: layout({ titulo: "Tu recojo fue cancelado", cuerpo: `${saludo(r)}<p>El recojo <b>${esc(r.codigo)}</b> del ${esc(U.fechaLarga(r.fecha_recojo))} fue cancelado${extra.motivo ? `: ${esc(extra.motivo)}` : ""}.</p><p>Cuando quieras volver a donar, escríbenos por WhatsApp y programamos uno nuevo.</p>` }),
@@ -104,6 +108,7 @@ function createMailer(env = process.env) {
     enabled, from, notifyTo, send, enviar,
     reserva: (r, cb) => enviar("reserva", r.correo, r, {}, cb),
     reprogramacion: (r, cb) => enviar("reprogramacion", r.correo, r, {}, cb),
+    recordatorio: (r, cb) => enviar("recordatorio", r.correo, r, {}, cb),
     cancelacion: (r, motivo, cb) => enviar("cancelacion", r.correo, r, { motivo }, cb),
     constancia: (c, pdfBuffer, correo, cb) => enviar("constancia", correo || c.correo, c, { attachments: [{ filename: `Constancia-${String(c.numero).padStart(5, "0")}-${String(c.razon_social).replace(/[^\w\-]+/g, "_").slice(0, 40)}.pdf`, content: pdfBuffer, contentType: "application/pdf" }] }, cb),
     avisoInterno: (r, cb) => notifyTo.length ? enviar("avisoInterno", notifyTo.join(", "), r, {}, cb) : Promise.resolve({ skipped: true }),
