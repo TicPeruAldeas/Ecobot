@@ -57,9 +57,13 @@ const PLANTILLAS = {
     subject: `Constancia de donación de reciclaje N.° ${String(c.numero).padStart(5, "0")} · ${c.razon_social}`,
     html: layout({ titulo: "Constancia de donación de reciclaje", cuerpo: `<p>Estimados ${esc(c.razon_social)},</p><p>Adjuntamos la constancia N.° <b>${String(c.numero).padStart(5, "0")}</b> por la donación de <b>${esc(Number(c.total).toLocaleString("es-PE"))} kg</b> de materiales reciclables entre el ${esc(U.fechaDdMmYyyy(c.desde))} y el ${esc(U.fechaDdMmYyyy(c.hasta))}.</p><p>Gracias por su compromiso con el medio ambiente y con las niñas, niños y adolescentes que acompañamos.</p>` }),
   }),
-  avisoInterno: (r) => ({
-    subject: `Nueva reserva ${r.codigo} · ${r.distrito} · ${U.fechaCorta(r.fecha_recojo)}`,
-    html: layout({ titulo: "Nueva reserva de recojo", cuerpo: `${filas([
+  avisoInterno: (r, extra = {}) => {
+    const tipo = extra.tipo || "reserva";
+    const titulos = { reserva: ["Nueva reserva", "Nueva reserva de recojo"], reprogramacion: ["Reprogramación", "Recojo reprogramado"], cancelacion: ["Cancelación", "Recojo cancelado"] };
+    const [asunto, titulo] = titulos[tipo] || titulos.reserva;
+    return {
+    subject: `${asunto} ${r.codigo} · ${r.distrito} · ${U.fechaCorta(r.fecha_recojo)}`,
+    html: layout({ titulo, cuerpo: `${tipo === "reprogramacion" && r.fecha_anterior ? `<p>Nueva fecha: <b>${esc(U.fechaLarga(r.fecha_recojo))}</b> (antes ${esc(U.fechaLarga(r.fecha_anterior))}).</p>` : ""}${tipo === "cancelacion" ? `<p>Cancelado${extra.motivo ? `: ${esc(extra.motivo)}` : ""}. El cupo quedó libre.</p>` : ""}${filas([
       ["Código", r.codigo], ["Fecha", U.fechaLarga(r.fecha_recojo)],
       ["Donante", r.tipo_donante === "empresa" ? `${r.empresa} (contacto: ${r.nombre})` : r.nombre],
       ["Documento", `${r.documento_tipo || ""} ${r.documento || ""}`], ["Celular", r.user_id], ["Correo", r.correo],
@@ -67,7 +71,8 @@ const PLANTILLAS = {
       ["Atención", r.disponibilidad ? `${DISPONIBILIDAD[r.disponibilidad] || ""}${r.horario ? `, ${r.horario}` : ""}` : null],
       ["Requisitos de acceso", r.requisitos], ["Materiales", (r.materiales || []).join(", ")], ["Cantidad", r.cantidad], ["Comentario", r.comentario],
     ])}${(r.fotos || []).map((u) => `<a href="${esc(u)}"><img src="${esc(u)}" width="180" style="border-radius:8px;margin:4px"></a>`).join("")}`, pie: "Aviso interno para el equipo de logística." }),
-  }),
+    };
+  },
 };
 
 function createMailer(env = process.env) {
@@ -111,7 +116,7 @@ function createMailer(env = process.env) {
     recordatorio: (r, cb) => enviar("recordatorio", r.correo, r, {}, cb),
     cancelacion: (r, motivo, cb) => enviar("cancelacion", r.correo, r, { motivo }, cb),
     constancia: (c, pdfBuffer, correo, cb) => enviar("constancia", correo || c.correo, c, { attachments: [{ filename: `Constancia-${String(c.numero).padStart(5, "0")}-${String(c.razon_social).replace(/[^\w\-]+/g, "_").slice(0, 40)}.pdf`, content: pdfBuffer, contentType: "application/pdf" }] }, cb),
-    avisoInterno: (r, cb) => notifyTo.length ? enviar("avisoInterno", notifyTo.join(", "), r, {}, cb) : Promise.resolve({ skipped: true }),
+    avisoInterno: (r, tipo = "reserva", motivo = null, cb) => notifyTo.length ? enviar("avisoInterno", notifyTo.join(", "), r, { tipo, motivo }, cb) : Promise.resolve({ skipped: true }),
     verify: () => (enabled ? transport.verify() : Promise.resolve(false)),
   };
 }

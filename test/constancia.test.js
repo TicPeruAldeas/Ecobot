@@ -36,6 +36,9 @@ test("mailer desactivado sin SMTP y plantillas con datos", async () => {
   const t = PLANTILLAS.reserva(r);
   assert.match(t.subject, /ECO-1/);
   assert.match(t.html, /jueves 17 de septiembre/);
+  assert.match(PLANTILLAS.avisoInterno(r).subject, /^Nueva reserva ECO-1/);
+  assert.match(PLANTILLAS.avisoInterno({ ...r, fecha_anterior: "2026-09-16" }, { tipo: "reprogramacion" }).subject, /^Reprogramación ECO-1/);
+  assert.match(PLANTILLAS.avisoInterno(r, { tipo: "cancelacion", motivo: "lluvia" }).html, /lluvia/);
   const rec = PLANTILLAS.recordatorio({ ...r, requisitos: "SCTR" });
   assert.match(rec.subject, /Recordatorio/);
   assert.match(rec.html, /SCTR/);

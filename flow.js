@@ -48,9 +48,10 @@ function createFlow({ store, wa, sunat = null, mailer = null }) {
   function correo(tipo, reserva, extra) {
     if (!mailer?.enabled) return;
     const cb = (err, r) => store.addEvento(reserva.id, err ? "correo_error" : "correo", { tipo, ...(err ? { error: err.message } : { a: reserva.correo }) }, "sistema");
-    if (tipo === "reserva") { mailer.reserva(reserva, cb); mailer.avisoInterno(reserva); }
+    if (tipo === "reserva") mailer.reserva(reserva, cb);
     else if (tipo === "reprogramacion") mailer.reprogramacion(reserva, cb);
     else if (tipo === "cancelacion") mailer.cancelacion(reserva, extra, cb);
+    mailer.avisoInterno(reserva, tipo, tipo === "cancelacion" ? extra : null);
   }
   // ── Respuestas con registro ──
   async function say(ctx, text) {

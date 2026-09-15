@@ -156,6 +156,7 @@ module.exports = function createAdminRouter({ store, mailer, whatsappHelpers }) 
     if (estado === "cancelado" && req.body.avisar) {
       aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* del ${U.fechaLarga(r.fecha_recojo)} fue cancelado${nota ? `: ${nota}` : ""}. Si deseas reprogramar, escribe *menú* y elige *Donar reciclables*.`, [r.empresa || r.nombre, r.codigo, `cancelado${nota ? ` (${nota})` : ""}`]);
       mailer?.cancelacion(r, nota || null, (err) => store.addEvento(r.id, err ? "correo_error" : "correo", { tipo: "cancelacion", ...(err ? { error: err.message } : { a: r.correo }) }, actor(req)));
+      mailer?.avisoInterno(r, "cancelacion", nota || null);
     }
     res.json({ ...r, aviso });
   }));
@@ -168,6 +169,7 @@ module.exports = function createAdminRouter({ store, mailer, whatsappHelpers }) 
     if (avisar) {
       aviso = await whatsappHelpers.notificar(r.user_id, `Hola ${r.empresa || r.nombre}. Tu recojo *${r.codigo}* fue reprogramado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Si no te acomoda, escribe *menú* → *Mis recojos*.`, [r.empresa || r.nombre, r.codigo, `reprogramado para el ${U.fechaLarga(r.fecha_recojo)}`]);
       mailer?.reprogramacion(r, (err) => store.addEvento(r.id, err ? "correo_error" : "correo", { tipo: "reprogramacion", ...(err ? { error: err.message } : { a: r.correo }) }, actor(req)));
+      mailer?.avisoInterno(r, "reprogramacion");
     }
     res.json({ ...r, aviso });
   }));
