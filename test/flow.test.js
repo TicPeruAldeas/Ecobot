@@ -178,14 +178,14 @@ test("guion completo: RUC → SUNAT → peso mínimo → residuos → fotos → 
   assert.equal(h.store.reservas[1].horario, "Sin restricción"); assert.equal(h.store.reservas[1].requisitos, null);
 
   // Mis reservas: reprogramar y cancelar
-  await h.text("mis reservas");                             // sin botón en el menú: se abre por texto
-  assert.equal(h.last().rows.length, 2);
-  await h.btn(`res:${h.store.reservas[0].id}`); await h.btn("r_reprogramar");
-  assert.ok(!h.last().rows.some((r) => r.id === `fecha:${fecha}`), "excluye la fecha actual");
-  await h.btn(h.last().rows[0].id);
-  assert.match(h.all(), /reprogramada/); assert.equal(h.store.reservas[0].reprogramaciones, 1);
-  await h.btn("menu_recojos"); await h.btn(`res:${h.store.reservas[1].id}`); await h.btn("r_cancelar"); await h.btn("rc_si");
-  assert.equal(h.store.reservas[1].estado, "cancelado");
+  // Autoservicio de reprogramar/cancelar DESACTIVADO para el donante: se deriva al equipo (panel).
+  await h.text("mis reservas");
+  assert.match(h.all(), /nuestro equipo te ayuda: Llama al 999/); assert.deepEqual(h.last().buttons.map((b) => b.id), ["menu_reservar", "menu_constancias"]);
+  await h.text("quiero cancelar mi reserva");
+  assert.match(h.all(), /nuestro equipo te ayuda: Llama al 999/);
+  await h.btn("menu_recojos");                              // botón viejo: no abre nada
+  assert.deepEqual(h.last().buttons.map((b) => b.id), ["menu_reservar", "menu_constancias"]);
+  assert.equal(h.store.reservas[0].reprogramaciones, 0); assert.equal(h.store.reservas[1].estado, "programado");
 });
 
 test("saludos globales reinician; 'reservar' arranca la reserva; 30 min sin actividad reinician con aviso", async () => {

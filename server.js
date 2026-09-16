@@ -166,7 +166,7 @@ async function sweepRecordatorios() {
       const faltan = inicio - now.getTime();
       if (faltan <= 0 || faltan > horas * 3600000) continue;
       const nombre = r.empresa || r.nombre;
-      const texto = `Hola ${nombre} 👋 Te recordamos tu recojo de reciclaje *${r.codigo}* programado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Ten los materiales listos. Si necesitas cambiar la fecha, escribe *menú* → *Mis recojos*.`;
+      const texto = `Hola ${nombre} 👋 Te recordamos tu recojo de reciclaje *${r.codigo}* programado para el *${U.fechaLarga(r.fecha_recojo)}* en ${r.direccion}, ${r.distrito}. Ten los materiales listos. Si necesitas cambiar la fecha, respóndenos por aquí y te ayudamos.`;
       const tpl = process.env.WA_TEMPLATE_RECORDATORIO;
       const resultado = { whatsapp: null, correo: null };
       // 1) WhatsApp (plantilla si existe; si no, texto libre que solo llega dentro de la ventana de 24 h)

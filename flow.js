@@ -16,6 +16,8 @@ const RE_HOLA = /^\s*(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hi
 const RE_SALUDO_GLOBAL = /^\s*(hola|holi|holaa+|buenas|buen d[ií]a|buenos d[ií]as|buenas tardes|buenas noches|hi|hello|ola|eco|hola eco|eco hola|hey|inicio|empezar|comenzar|start)[\s!.,¡?]*$/i;
 const RE_RESERVAR_GLOBAL = /^\s*(reservar|reserva|solicitud|iniciar solicitud|nueva solicitud|quiero reservar|empezar reserva|nueva reserva|agendar|agendar recojo|programar recojo|quiero donar|donar)[\s!.,]*$/i;
 const RE_MIS_RESERVAS_GLOBAL = /^\s*(mis reservas|mis solicitudes|mis recojos|reprogramar|cambiar fecha|cancelar reserva|cancelar solicitud)[\s!.,]*$/i;
+// Autoservicio de reprogramar/cancelar por WhatsApp. Apagado por decisión del equipo (16-sep-2026); el panel lo hace.
+const AUTOSERVICIO = /^(1|true|yes|on)$/i.test(process.env.AUTOSERVICIO_RESERVAS || "");
 const RE_SI = /^\s*(s[ií]|si,? continuar|s[ií],? confirmar|s[ií],? a[ñn]adir|correcto|ok|dale|claro|confirmo|continuar)\b/i;
 const RE_NO = /^\s*(no|no,? modificar|no,? regresar|no,? continuar|no,? cancelar|ninguno|ninguna|omitir)\b/i;
 
@@ -320,8 +322,7 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
       throw err;
     }
     const cfg = await store.getConfig();
-    const texto = String(cfg.mensaje_final || "✅ ¡Reserva registrada! Código: {codigo}").replace(/\{codigo\}/g, reserva.codigo).replace(/\{horario\}/g, cfg.horario_recojo || "9:00 a. m. a 5:30 p. m.")
-      + `\n\n_Para cambiar la fecha o cancelar, escribe *menú* y elige *Mis reservas*._`;
+    const texto = String(cfg.mensaje_final || "✅ ¡Reserva registrada! Código: {codigo}").replace(/\{codigo\}/g, reserva.codigo).replace(/\{horario\}/g, cfg.horario_recojo || "9:00 a. m. a 5:30 p. m.");
     await say(ctx, texto);
     console.log(`📦 Reserva ${reserva.codigo} — ${reserva.distrito} ${reserva.fecha_recojo} (${ctx.from})`);
     correo("reserva", reserva);
@@ -409,10 +410,12 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
     // Comandos globales
     if (texto && RE_SALUDO_GLOBAL.test(texto)) return showMenu(ctx, { bienvenida: true });
     if (texto && RE_RESERVAR_GLOBAL.test(texto)) return startReserva(ctx);
-    if (texto && RE_MIS_RESERVAS_GLOBAL.test(texto)) return showMisRecojos(ctx);
+    // Reprogramar/cancelar por WhatsApp está DESACTIVADO para el donante (se hace desde el panel).
+    // Se conserva el código de "Mis reservas" para activarlo más adelante: AUTOSERVICIO_RESERVAS=1.
+    if (AUTOSERVICIO && texto && RE_MIS_RESERVAS_GLOBAL.test(texto)) return showMisRecojos(ctx);
     if (btn === BTN.menu || (texto && RE_MENU.test(texto))) return showMenu(ctx, { intro: ctx.datos.flujo ? "Listo, dejé el proceso anterior. ¿Qué deseas hacer?" : null });
     if (btn === BTN.reservar) return startReserva(ctx);
-    if (btn === BTN.misRecojos) return showMisRecojos(ctx);
+    if (AUTOSERVICIO && btn === BTN.misRecojos) return showMisRecojos(ctx);
     if (btn === BTN.constancias) return askConstanciaRuc(ctx);
     if (btn === BTN.info) return showInfo(ctx);
     // Foto fuera de lugar: se acepta si estamos en la reserva (la gente manda fotos cuando quiere)
@@ -426,8 +429,13 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
         return showMenu(ctx, { bienvenida: true });
 
       case "menu":
-        if (/reserva|reservar|recojo|donar|reciclar|programar|empezar/i.test(texto)) return startReserva(ctx);
-        if (/mis reservas|mis recojos|reprogramar|cambiar fecha|cancelar/i.test(texto)) return showMisRecojos(ctx);
+        if (/mis (reservas|solicitudes|recojos)|reprogramar|cambiar (la )?fecha|cancelar|anular/i.test(texto)) {
+          if (AUTOSERVICIO) return showMisRecojos(ctx);
+          const c = await store.getConfig();
+          await say(ctx, `Para cambiar la fecha o cancelar una solicitud, nuestro equipo te ayuda: ${c.contacto_humano || "escríbenos y te contactamos"}.`);
+          return showMenu(ctx);
+        }
+        if (/reserva|reservar|recojo|donar|reciclar|programar|empezar|solicitud/i.test(texto)) return startReserva(ctx);
         if (/constancia|certificado/i.test(texto)) return askConstanciaRuc(ctx);
         if (/info|informaci[oó]n|c[oó]mo funciona|ayuda|distritos|cobertura|horario/i.test(texto)) return showInfo(ctx);
         if (RE_HOLA.test(texto)) return showMenu(ctx, { bienvenida: true });

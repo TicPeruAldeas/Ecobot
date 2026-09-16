@@ -25,7 +25,7 @@ Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienv
 | Comentario | "¿Desea añadir un comentario?" *Sí, añadir / No, continuar*. |
 | Resumen y código | Resumen con RUC, empresa, distrito, dirección, residuos, fotos, fecha, correo; botones *✅ Sí, confirmar / ✏️ Corregir / ❌ No, cancelar*. Código **RESER-nnnnn** (secuencia `eco_reserva_numero_seq`, arranca en 100; ajustable con `ALTER SEQUENCE … RESTART`). Mensaje final configurable (`mensaje_final`, con `{codigo}` y `{horario}`). |
 | Reserva | Función SQL `eco_reservar` con lock por fecha: dos personas no pueden tomar el último cupo. |
-| Mis reservas | Reprogramar (libera cupo anterior, toma el nuevo) y cancelar (libera cupo). Trazabilidad en `eco_reserva_eventos`. |
+| Reprogramar / cancelar | **Solo desde el panel** (decisión del equipo, 16-sep-2026). Si el donante lo pide por WhatsApp, se le deriva al contacto humano. El autoservicio existe en el código y se activa con `AUTOSERVICIO_RESERVAS=1`. |
 | Constancias | El donante escribe su RUC y recibe la constancia más reciente **como PDF por WhatsApp** (las emite el panel). |
 | Recordatorios | Barrido cada 10 min; avisa N horas antes por **WhatsApp y correo**. Por WhatsApp, fuera de 24 h Meta exige plantilla (§5). |
 | Panel `/admin` | Resumen, reservas (fotos, estado, kilos por material, nota, reprogramar, cancelar, constancia PDF por correo), calendario, rutas (zona/días/alias), conversaciones, configuración, usuarios, exportar Excel. |

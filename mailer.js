@@ -40,7 +40,7 @@ const saludo = (r) => `<p style="margin:0 0 8px">Hola ${esc(r.tipo_donante === "
 const PLANTILLAS = {
   reserva: (r) => ({
     subject: `Recojo programado ${r.codigo} · ${U.fechaLarga(r.fecha_recojo)}`,
-    html: layout({ titulo: "¡Tu recojo quedó programado!", cuerpo: `${saludo(r)}<p>Gracias por donar tus materiales reciclables. Estos son los datos de tu recojo:</p>${datosRecojo(r)}<p>Te recordaremos por WhatsApp antes de la fecha. Ten los materiales listos y accesibles. Si necesitas cambiar la fecha o cancelar, escribe <b>menú</b> en WhatsApp y elige <b>Mis recojos</b>.</p><p style="margin-top:16px">¡Gracias por reciclar con Aldeas Infantiles SOS! 💚</p>` }),
+    html: layout({ titulo: "¡Tu recojo quedó programado!", cuerpo: `${saludo(r)}<p>Gracias por donar tus materiales reciclables. Estos son los datos de tu recojo:</p>${datosRecojo(r)}<p>Te recordaremos por WhatsApp antes de la fecha. Ten los materiales listos y accesibles. Si necesitas cambiar la fecha o cancelar, escríbenos por WhatsApp y te ayudamos.</p><p style="margin-top:16px">¡Gracias por reciclar con Aldeas Infantiles SOS! 💚</p>` }),
   }),
   reprogramacion: (r) => ({
     subject: `Recojo ${r.codigo} reprogramado para el ${U.fechaLarga(r.fecha_recojo)}`,
@@ -48,7 +48,7 @@ const PLANTILLAS = {
   }),
   recordatorio: (r) => ({
     subject: `Recordatorio: mañana pasamos por tu reciclaje · ${r.codigo}`,
-    html: layout({ titulo: "Tu recojo es pronto", cuerpo: `${saludo(r)}<p>Te recordamos que tu recojo de materiales reciclables está programado para el <b>${esc(U.fechaLarga(r.fecha_recojo))}</b>.</p>${datosRecojo(r)}<p>Ten los materiales listos y accesibles${r.requisitos ? `, y coordina el acceso de nuestro personal (${esc(r.requisitos)})` : ""}. Si necesitas cambiar la fecha, escribe <b>menú</b> en WhatsApp y elige <b>Mis recojos</b>.</p>` }),
+    html: layout({ titulo: "Tu recojo es pronto", cuerpo: `${saludo(r)}<p>Te recordamos que tu recojo de materiales reciclables está programado para el <b>${esc(U.fechaLarga(r.fecha_recojo))}</b>.</p>${datosRecojo(r)}<p>Ten los materiales listos y accesibles${r.requisitos ? `, y coordina el acceso de nuestro personal (${esc(r.requisitos)})` : ""}. Si necesitas cambiar la fecha, escríbenos por WhatsApp y te ayudamos.</p>` }),
   }),
   cancelacion: (r, extra = {}) => ({
     subject: `Recojo ${r.codigo} cancelado`,
