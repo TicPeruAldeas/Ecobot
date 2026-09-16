@@ -14,7 +14,8 @@ const RE_MENU = /^\s*(menu|menú|volver|salir|reiniciar|empezar de nuevo|cancela
 const RE_HOLA = /^\s*(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hi|hello|ola)\b/i;
 // Saludo "suelto" en cualquier paso → reinicia desde la bienvenida. "reservar" suelto → empieza la reserva.
 const RE_SALUDO_GLOBAL = /^\s*(hola|holi|holaa+|buenas|buen d[ií]a|buenos d[ií]as|buenas tardes|buenas noches|hi|hello|ola|eco|hola eco|eco hola|hey|inicio|empezar|comenzar|start)[\s!.,¡?]*$/i;
-const RE_RESERVAR_GLOBAL = /^\s*(reservar|reserva|quiero reservar|empezar reserva|nueva reserva|agendar|agendar recojo|programar recojo|quiero donar|donar)[\s!.,]*$/i;
+const RE_RESERVAR_GLOBAL = /^\s*(reservar|reserva|solicitud|iniciar solicitud|nueva solicitud|quiero reservar|empezar reserva|nueva reserva|agendar|agendar recojo|programar recojo|quiero donar|donar)[\s!.,]*$/i;
+const RE_MIS_RESERVAS_GLOBAL = /^\s*(mis reservas|mis solicitudes|mis recojos|reprogramar|cambiar fecha|cancelar reserva|cancelar solicitud)[\s!.,]*$/i;
 const RE_SI = /^\s*(s[ií]|si,? continuar|s[ií],? confirmar|s[ií],? a[ñn]adir|correcto|ok|dale|claro|confirmo|continuar)\b/i;
 const RE_NO = /^\s*(no|no,? modificar|no,? regresar|no,? continuar|no,? cancelar|ninguno|ninguna|omitir)\b/i;
 
@@ -109,13 +110,12 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
     await go(ctx, "menu", { flujo: null });
     let texto;
     if (bienvenida) {
-      const nombre = ctx.name ? ctx.name.split(" ")[0] : "";
-      texto = (nota ? `${nota}\n\n` : "") + String(cfg.mensaje_bienvenida || "").replace(/\{nombre\}/g, nombre).replace(/\s*\n\s*\n\s*\n/g, "\n\n").trim() +
-        `\n\n_Al continuar aceptas que usemos tus datos solo para coordinar el recojo y emitir tu constancia (Ley N.° 29733)._`;
+      // Texto exacto del ECO anterior: nombre completo de WhatsApp, sin añadidos.
+      texto = (nota ? `${nota}\n\n` : "") + String(cfg.mensaje_bienvenida || "").replace(/\{nombre\}/g, ctx.name || "").replace(/\s*\n\s*\n\s*\n/g, "\n\n").trim();
     } else texto = intro || "¿Qué deseas hacer?";
+    // Botones del ECO anterior. "Mis reservas" (reprogramar/cancelar) se abre escribiendo "mis reservas".
     await ask(ctx, texto, [
-      { id: BTN.reservar, title: "👉 Empezar reserva" },
-      { id: BTN.misRecojos, title: "Mis reservas" },
+      { id: BTN.reservar, title: "👉 Iniciar solicitud" },
       { id: BTN.constancias, title: "Constancias" },
     ]);
   }
@@ -409,6 +409,7 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
     // Comandos globales
     if (texto && RE_SALUDO_GLOBAL.test(texto)) return showMenu(ctx, { bienvenida: true });
     if (texto && RE_RESERVAR_GLOBAL.test(texto)) return startReserva(ctx);
+    if (texto && RE_MIS_RESERVAS_GLOBAL.test(texto)) return showMisRecojos(ctx);
     if (btn === BTN.menu || (texto && RE_MENU.test(texto))) return showMenu(ctx, { intro: ctx.datos.flujo ? "Listo, dejé el proceso anterior. ¿Qué deseas hacer?" : null });
     if (btn === BTN.reservar) return startReserva(ctx);
     if (btn === BTN.misRecojos) return showMisRecojos(ctx);

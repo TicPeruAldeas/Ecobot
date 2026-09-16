@@ -504,3 +504,13 @@ notify pgrst, 'reload schema';
 
 -- 2026-09-16 · Reinicio por inactividad (minutos), editable desde el panel.
 insert into public.eco_config (key, value) values ('sesion_minutos', '30') on conflict (key) do nothing;
+
+-- 2026-09-16 · Bienvenida exacta del ECO anterior (sin cambios de redacción).
+update public.eco_config
+   set value = '¡Hola! *{nombre}*
+Soy Eco ♻️, tu asistente de reciclaje.
+Bienvenido(a) al Programa de Reciclaje Integral de Aldeas Infantiles SOS Perú, donde cada residuo reciclado se convierte en una oportunidad para la niñez. Promoviendo un futuro más sostenible.🌱✨
+
+♻️ Reduce, reutiliza, recicla… y transforma el mundo con nosotros!
+📅 Agenda aquí tu recolección y únete al cambio', updated_at = now()
+ where key = 'mensaje_bienvenida' and value like '¡Hola! *{nombre}*%';

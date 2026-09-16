@@ -75,8 +75,8 @@ test("detectarMateriales", () => {
 test("guion completo: RUC → SUNAT → peso mínimo → residuos → fotos → zona → distrito → día → fecha → dirección → correo → acceso → comentario → resumen → código", async () => {
   const h = harness();
   await h.text("hola");
-  assert.match(h.last().body, /¡Hola! \*Carla\*/); assert.match(h.last().body, /Ley N\.° 29733/);
-  assert.deepEqual(h.last().buttons.map((b) => b.id), ["menu_reservar", "menu_recojos", "menu_constancias"]);
+  assert.match(h.last().body, /¡Hola! \*Carla Prueba\*/); assert.doesNotMatch(h.last().body, /29733/);
+  assert.deepEqual(h.last().buttons.map((b) => b.title), ["👉 Iniciar solicitud", "Constancias"]);
 
   await h.btn("menu_reservar");
   assert.match(h.all(), /Vamos a proceder/); assert.match(h.last().body, /Ingrese el número de \*RUC\*/);
@@ -178,7 +178,7 @@ test("guion completo: RUC → SUNAT → peso mínimo → residuos → fotos → 
   assert.equal(h.store.reservas[1].horario, "Sin restricción"); assert.equal(h.store.reservas[1].requisitos, null);
 
   // Mis reservas: reprogramar y cancelar
-  await h.text("menú"); await h.btn("menu_recojos");
+  await h.text("mis reservas");                             // sin botón en el menú: se abre por texto
   assert.equal(h.last().rows.length, 2);
   await h.btn(`res:${h.store.reservas[0].id}`); await h.btn("r_reprogramar");
   assert.ok(!h.last().rows.some((r) => r.id === `fecha:${fecha}`), "excluye la fecha actual");
@@ -193,7 +193,7 @@ test("saludos globales reinician; 'reservar' arranca la reserva; 30 min sin acti
   await h.text("hola"); await h.btn("menu_reservar"); await h.text("20100047218"); await h.btn("si"); await h.btn("si");
   assert.match(h.last().body, /cantidad y el tipo de residuos/);
   await h.text("Eco");                                     // saludo suelto a mitad del flujo → bienvenida
-  assert.match(h.last().body, /¡Hola! \*Carla\*/); assert.equal(h.last().buttons[0].id, "menu_reservar");
+  assert.match(h.last().body, /¡Hola! \*Carla Prueba\*/); assert.equal(h.last().buttons[0].id, "menu_reservar");
   await h.text("reservar");                                // palabra suelta → empieza la reserva
   assert.match(h.last().body, /Ingrese el número de \*RUC\*/);
   await h.text("Eco Reciclaje SAC");                       // no es saludo suelto: se trata como respuesta del paso (RUC inválido)
@@ -202,7 +202,7 @@ test("saludos globales reinician; 'reservar' arranca la reserva; 30 min sin acti
   const s = h.store.sesiones.get(h.from);
   s.updated_at = new Date(Date.now() - 31 * 60 * 1000).toISOString();
   await h.text("20100047218");
-  assert.match(h.last().body, /Pasaron más de 30 minutos sin actividad/); assert.match(h.last().body, /¡Hola! \*Carla\*/);
+  assert.match(h.last().body, /Pasaron más de 30 minutos sin actividad/); assert.match(h.last().body, /¡Hola! \*Carla Prueba\*/);
   assert.equal(h.store.sesiones.get(h.from).paso, "menu");
 });
 
@@ -211,7 +211,7 @@ test("peso mínimo: 'No' termina amablemente y vuelve al menú", async () => {
   await h.text("hola"); await h.btn("menu_reservar"); await h.text("20100047218"); await h.btn("si");
   await h.btn("no");
   assert.match(h.all(), /Cuando cuente con el mínimo de \*250 kg\*/);
-  assert.deepEqual(h.last().buttons.map((b) => b.id), ["menu_reservar", "menu_recojos", "menu_constancias"]);
+  assert.deepEqual(h.last().buttons.map((b) => b.id), ["menu_reservar", "menu_constancias"]);
 });
 
 test("RUC no encontrado en SUNAT → razón social manual; distrito escrito a mano en el paso de zona", async () => {
