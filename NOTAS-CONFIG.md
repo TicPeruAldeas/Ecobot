@@ -38,7 +38,7 @@ Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienv
 - Correr en el SQL Editor: `supabase/migrations/20260914120000_eco_schema.sql` (idempotente).
 - Tablas: `eco_config`, `eco_distritos`, `eco_fechas`, `eco_sesiones`, `eco_reservas`, `eco_reserva_eventos`, `eco_mensajes`, `eco_admin_users`, `eco_admin_audit`.
 - Funciones: `eco_reservar(jsonb)`, `eco_reprogramar(uuid, date, text)`, `eco_cambiar_estado(uuid, text, text, text, numeric)`, `eco_ocupacion(date, date)`, `eco_cupo_de_fecha(date)`.
-- El catálogo inicial de distritos sale de la imagen *RUTAS OFICIALES* (lun–vie). Revísalo en el panel → Rutas.
+- Catálogo de zonas/distritos/días: el real del ECO en Chatfuel (16-sep-2026), aplicado una sola vez (`eco_config.catalogo_version`). Se edita en el panel → Rutas. Callao 🔵 (mié), Lima Sur 🟠 (vie; Surco lun+vie; San Borja lun+jue), Lima Norte 🟣 (sáb; Rímac mié), Lima Centro 🟡 (sáb; Miraflores y San Isidro lun+jue+sáb; Surquillo lun+jue), Lima Este 🟢 (mar; SJL lun–vie).
 
 ---
 

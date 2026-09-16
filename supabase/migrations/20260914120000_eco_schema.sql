@@ -432,3 +432,72 @@ Bienvenido(a) al Programa de Reciclaje Integral de Aldeas Infantiles SOS Perú, 
  where key = 'mensaje_bienvenida' and value like '¡Hola! Soy *ECO*%';
 
 notify pgrst, 'reload schema';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 2026-09-16 · Catálogo real de zonas/distritos/días (tomado del ECO en Chatfuel).
+-- Se aplica UNA sola vez (eco_config.catalogo_version) para no pisar cambios hechos
+-- después desde el panel → Rutas. Días ISO: 1=lun 2=mar 3=mié 4=jue 5=vie 6=sáb.
+-- ═══════════════════════════════════════════════════════════════════════════
+do $$
+begin
+  if not exists (select 1 from public.eco_config where key = 'catalogo_version' and value >= '2026-09-16') then
+    create temp table eco_tmp_cat (nombre text, zona text, dias int[], aliases text[]) on commit drop;
+    insert into eco_tmp_cat values
+      -- 🔵 Callao
+      ('Callao',                 'Callao',      '{3}',         '{Cercado del Callao}'),
+      ('Magdalena del Mar',      'Callao',      '{3}',         '{Magdalena}'),
+      ('San Miguel',             'Callao',      '{3}',         '{}'),
+      ('Pueblo Libre',           'Callao',      '{3}',         '{}'),
+      -- 🟠 Lima Sur
+      ('Barranco',               'Lima Sur',    '{5}',         '{}'),
+      ('Chorrillos',             'Lima Sur',    '{5}',         '{}'),
+      ('Lurín',                  'Lima Sur',    '{5}',         '{Lurin}'),
+      ('Santiago de Surco',      'Lima Sur',    '{1,5}',       '{Surco}'),
+      ('Villa El Salvador',      'Lima Sur',    '{5}',         '{VES}'),
+      ('San Juan de Miraflores', 'Lima Sur',    '{5}',         '{SJM}'),
+      ('San Borja',              'Lima Sur',    '{1,4}',       '{}'),
+      -- 🟣 Lima Norte
+      ('Carabayllo',             'Lima Norte',  '{6}',         '{}'),
+      ('Comas',                  'Lima Norte',  '{6}',         '{}'),
+      ('Los Olivos',             'Lima Norte',  '{6}',         '{}'),
+      ('San Martín de Porres',   'Lima Norte',  '{6}',         '{SMP,San Martin de Porres}'),
+      ('Independencia',          'Lima Norte',  '{6}',         '{}'),
+      ('Rímac',                  'Lima Norte',  '{3}',         '{Rimac}'),
+      -- 🟡 Lima Centro
+      ('Breña',                  'Lima Centro', '{6}',         '{Brena}'),
+      ('Centro de Lima',         'Lima Centro', '{6}',         '{Cercado de Lima,Lima Cercado,Lima}'),
+      ('Jesús María',            'Lima Centro', '{6}',         '{Jesus Maria}'),
+      ('La Victoria',            'Lima Centro', '{6}',         '{}'),
+      ('Lince',                  'Lima Centro', '{6}',         '{}'),
+      ('Miraflores',             'Lima Centro', '{1,4,6}',     '{}'),
+      ('San Isidro',             'Lima Centro', '{1,4,6}',     '{}'),
+      ('Surquillo',              'Lima Centro', '{1,4}',       '{}'),
+      -- 🟢 Lima Este
+      ('Ate',                    'Lima Este',   '{2}',         '{Ate Vitarte,Vitarte}'),
+      ('Huachipa',               'Lima Este',   '{2}',         '{}'),
+      ('Santa Anita',            'Lima Este',   '{2}',         '{}'),
+      ('La Molina',              'Lima Este',   '{2}',         '{}'),
+      ('San Luis',               'Lima Este',   '{2}',         '{}'),
+      ('El Agustino',            'Lima Este',   '{2}',         '{Agustino}'),
+      ('San Juan de Lurigancho', 'Lima Este',   '{1,2,3,4,5}', '{SJL}'),
+      ('Chosica',                'Lima Este',   '{2}',         '{Lurigancho-Chosica}');
+
+    -- "Cercado de Lima" del catálogo inicial pasa a llamarse "Centro de Lima".
+    update public.eco_distritos set nombre = 'Centro de Lima' where lower(nombre) = 'cercado de lima'
+      and not exists (select 1 from public.eco_distritos where lower(nombre) = 'centro de lima');
+
+    insert into public.eco_distritos (nombre, zona, dias, aliases, activo)
+    select nombre, zona, dias, aliases, true from eco_tmp_cat
+    on conflict ((lower(nombre))) do update
+      set zona = excluded.zona, dias = excluded.dias, aliases = excluded.aliases, activo = true, updated_at = now();
+
+    -- Lo que ya no está en la lista oficial queda inactivo (no se borra).
+    update public.eco_distritos d set activo = false, updated_at = now()
+     where not exists (select 1 from eco_tmp_cat t where lower(t.nombre) = lower(d.nombre));
+
+    insert into public.eco_config (key, value) values ('catalogo_version', '2026-09-16')
+    on conflict (key) do update set value = excluded.value, updated_at = now();
+  end if;
+end $$;
+
+notify pgrst, 'reload schema';

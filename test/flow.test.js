@@ -15,7 +15,7 @@ function memStore({ conZonas = true } = {}) {
     { id: "d1", nombre: "Miraflores", aliases: [], dias: [1, 5], activo: true, zona: conZonas ? "Lima Centro" : null },
     { id: "d2", nombre: "San Juan de Lurigancho", aliases: ["SJL"], dias: [4], activo: true, zona: conZonas ? "Lima Este" : null },
     { id: "d3", nombre: "Santiago de Surco", aliases: ["Surco"], dias: [1, 5], activo: true, zona: conZonas ? "Lima Sur" : null },
-    { id: "d4", nombre: "San Juan de Miraflores", aliases: ["SJM"], dias: [1], activo: true, zona: conZonas ? "Lima Sur" : null },
+    { id: "d4", nombre: "San Juan de Miraflores", aliases: ["SJM"], dias: [5], activo: true, zona: conZonas ? "Lima Sur" : null },
   ];
   const sesiones = new Map(); const reservas = []; const eventos = []; const mensajes = []; const fechas = {}; const constancias = [];
   let seq = 0;
@@ -102,11 +102,15 @@ test("guion completo: RUC → SUNAT → peso mínimo → residuos → fotos → 
   assert.match(h.last().body, /Llevas 2 foto/);
   await h.btn("foto_listo");
   assert.equal(h.last().type, "list"); assert.match(h.last().body, /Seleccione la Zona/);
-  assert.deepEqual(h.last().rows.map((r) => r.id), ["zona:Lima Centro", "zona:Lima Este", "zona:Lima Sur"]);
+  assert.deepEqual(h.last().rows.map((r) => r.id), ["zona:Lima Sur", "zona:Lima Centro", "zona:Lima Este"]);   // orden del ECO anterior
+  assert.equal(h.last().rows[0].title, "🟠 LIMA SUR");
   await h.btn("zona:Lima Sur");
-  assert.equal(h.last().type, "list"); assert.match(h.last().body, /Distritos Lima Sur/); assert.match(h.last().body, /9:00 a\. m\. a 5:30 p\. m\./);
-  assert.deepEqual(h.last().rows.map((r) => r.description), ["Solo lunes y viernes", "Solo lunes"]);
-  await h.btn("dist:d3");
+  assert.equal(h.last().type, "list"); assert.match(h.last().body, /Distritos Lima Sur 🟠/); assert.match(h.last().body, /9:00 a\. m\. a 5:30 p\. m\./);
+  assert.deepEqual(h.last().rows.map((r) => r.id), ["dist:d4", "dist:d3", "dist:zona", "dist:escribir"]);
+  assert.deepEqual(h.last().rows.slice(0, 2).map((r) => r.description), ["Solo viernes", "Solo lunes y viernes"]);
+  await h.btn("dist:zona");
+  assert.match(h.last().body, /Seleccione la Zona/);
+  await h.btn("zona:Lima Sur"); await h.btn("dist:d3");
   assert.match(h.all(), /Santiago de Surco\*\nSolo lunes y viernes/);
   assert.equal(h.last().type, "buttons"); assert.deepEqual(h.last().buttons.map((b) => b.id), ["dia:1", "dia:5"]);
   await h.btn("dia:5");

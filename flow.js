@@ -51,6 +51,9 @@ function detectarMateriales(texto) {
   const out = MATERIAL_KEYS.filter(([, re]) => re.test(texto)).map(([n]) => n);
   return out.length ? out : ["Otros"];
 }
+// Color y orden de las zonas (como en el ECO anterior). Otras zonas: 📍 al final.
+const ZONA_META = { "callao": { emoji: "🔵", orden: 1 }, "lima sur": { emoji: "🟠", orden: 2 }, "lima norte": { emoji: "🟣", orden: 3 }, "lima centro": { emoji: "🟡", orden: 4 }, "lima este": { emoji: "🟢", orden: 5 } };
+const zonaMeta = (z) => ZONA_META[String(z || "").toLowerCase()] || { emoji: "📍", orden: 99 };
 const capDia = (isoDow) => { const d = U.nombreDia(isoDow); return d.charAt(0).toUpperCase() + d.slice(1); };
 const diasTexto = (dias = []) => {
   const n = [...dias].sort().map(capDia);
@@ -167,14 +170,16 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
     const distritos = await store.getDistritos();
     const map = new Map();
     for (const d of distritos) { if (!(d.dias || []).length) continue; const z = d.zona || "Otras zonas"; if (!map.has(z)) map.set(z, []); map.get(z).push(d); }
-    return { distritos, zonas: [...map.entries()].sort((a, b) => a[0].localeCompare(b[0])) };
+    const orden = (a, b) => zonaMeta(a[0]).orden - zonaMeta(b[0]).orden || a[0].localeCompare(b[0]);
+    for (const ds of map.values()) ds.sort((a, b) => a.nombre.localeCompare(b.nombre));
+    return { distritos, zonas: [...map.entries()].sort(orden) };
   }
   async function askZona(ctx) {
     const { zonas: zs } = await zonas();
     await go(ctx, "zona");
     if (zs.length <= 1) return askDistritoTexto(ctx);
     await pick(ctx, "🌍 *Seleccione la Zona:*\n📍 Escoja primero la zona y luego el distrito donde se encuentra el material que desea donar. 📦✨\n♻️ Gracias por contribuir al cuidado del medio ambiente.\n\n_Si prefiere, escriba directamente el nombre de su distrito._",
-      "🔎 Ver Zonas", zs.slice(0, 10).map(([z, ds]) => ({ id: `zona:${z}`, title: U.truncar(z, 24), description: U.truncar(ds.map((d) => d.nombre).join(", "), 72) })), { sectionTitle: "Zonas" });
+      "🔎 Ver Zonas", zs.slice(0, 10).map(([z, ds]) => ({ id: `zona:${z}`, title: U.truncar(`${zonaMeta(z).emoji} ${z.toUpperCase()}`, 24), description: U.truncar(ds.map((d) => d.nombre).join(", "), 72) })), { sectionTitle: "Zonas" });
   }
   async function askDistritoZona(ctx, zona) {
     const cfg = await store.getConfig();
@@ -182,11 +187,16 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
     const ds = (zs.find(([z]) => z === zona) || [null, []])[1];
     if (!ds.length) return askZona(ctx);
     await go(ctx, "distrito", { zona });
-    const intro = `*Distritos ${zona}*\n📅 Cada distrito cuenta con un horario establecido. ⏰ Dependiendo de su distrito, habrá días específicos disponibles para realizar la reserva. ✅✨ El horario de recojo es de *${cfg.horario_recojo || "9:00 a. m. a 5:30 p. m."}*.\n\n*Seleccione un distrito:*`;
-    for (let i = 0; i < ds.length; i += 10) {
-      const chunk = ds.slice(i, i + 10);
-      await pick(ctx, i === 0 ? intro : `Más distritos de ${zona} (${Math.floor(i / 10) + 1}):`, "🔎 Ver distritos",
-        chunk.map((d) => ({ id: `dist:${d.id}`, title: U.truncar(d.nombre, 24), description: diasTexto(d.dias) })), { sectionTitle: U.truncar(zona, 24) });
+    const { emoji } = zonaMeta(zona);
+    const intro = `*Distritos ${zona} ${emoji}*\n📅 Cada distrito cuenta con un horario establecido. ⏰ Dependiendo de su distrito, habrá días específicos disponibles para realizar la reserva. ✅✨ El horario de recojo es de *${cfg.horario_recojo || "9:00 a. m. a 5:30 p. m."}*.\n\n*Seleccione un distrito:*`;
+    const extras = [{ id: "dist:zona", title: "🔄 Cambiar de zona" }, { id: "dist:escribir", title: "✍️ Escribir mi distrito" }];
+    const POR_LISTA = 8; // + 2 filas extra = 10 (máximo de WhatsApp)
+    for (let i = 0; i < ds.length; i += POR_LISTA) {
+      const chunk = ds.slice(i, i + POR_LISTA);
+      const ultimo = i + POR_LISTA >= ds.length;
+      await pick(ctx, i === 0 ? intro : `Más distritos de ${zona} (${Math.floor(i / POR_LISTA) + 1}):`, "🔎 Ver distritos",
+        [...chunk.map((d) => ({ id: `dist:${d.id}`, title: U.truncar(`${emoji} ${d.nombre}`, 24), description: diasTexto(d.dias) })), ...(ultimo ? extras : [])],
+        { sectionTitle: U.truncar(zona, 24) });
     }
   }
   async function askDistritoTexto(ctx) {
@@ -215,7 +225,7 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
       return say(ctx, `*${d.nombre}* no tiene ruta de recojo activa por ahora. ${cfg.contacto_humano || ""}`);
     }
     await go(ctx, "dia", { distrito: d.nombre, distrito_id: d.id, zona: d.zona || ctx.datos.zona || null, fecha: null, dia_semana: null });
-    await say(ctx, `🟠 *${d.nombre}*\n${diasTexto(d.dias)}.`);
+    await say(ctx, `${zonaMeta(d.zona).emoji} *${d.nombre}*\n${diasTexto(d.dias)}.`);
     if (d.dias.length === 1) { await go(ctx, "fecha", { dia_semana: d.dias[0] }); return askFecha(ctx); }
     const dias = [...d.dias].sort();
     if (dias.length <= 3) await ask(ctx, `📅 Seleccione el día de la semana para su recolección en ${d.nombre}:`, dias.map((n) => ({ id: `dia:${n}`, title: capDia(n) })));
@@ -478,7 +488,8 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
         return askZona(ctx);
       }
       case "distrito": {
-        if (btn === "dist:otro") return askZona(ctx);
+        if (btn === "dist:otro" || btn === "dist:zona") return askZona(ctx);
+        if (btn === "dist:escribir") return askDistritoTexto(ctx);
         if (btn && btn.startsWith("dist:")) {
           const d = (await store.getDistritos()).find((x) => x.id === btn.slice(5));
           if (d) return setDistrito(ctx, d);
