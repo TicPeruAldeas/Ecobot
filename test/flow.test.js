@@ -60,7 +60,7 @@ function harness(opts) {
   const store = memStore(opts); const out = [];
   const sunat = { enabled: true, consultar: async (ruc) => ruc === "20100047218" ? { ruc, razon_social: "BANCO DE CREDITO DEL PERU", estado: "ACTIVO", condicion: "HABIDO" } : null };
   const constancias = { generarPdf: async () => Buffer.from("%PDF-fake") };
-  const flow = createFlow({ store, wa: fakeWa(out), sunat, constancias });
+  const flow = createFlow({ store, wa: fakeWa(out), sunat, constancias, fotoAgruparMs: 0 });
   const from = "51999000111";
   const send = async (m) => { out.length = 0; await flow.handle({ from, name: "Carla Prueba", msg: { text: null, buttonId: null, buttonTitle: null, image: null, document: null, location: null, ...m } }); return out; };
   return { store, out, text: (t) => send({ text: t }), btn: (id) => send({ buttonId: id, buttonTitle: id }), image: () => send({ image: { id: "img1" } }), last: () => out[out.length - 1], all: () => out.map((m) => m.body || "").join("\n"), from };
@@ -97,9 +97,9 @@ test("guion completo: RUC → SUNAT → peso mínimo → residuos → fotos → 
   await h.text("no tengo");
   assert.match(h.last().body, /Necesito al menos una \*fotografía\*/);
   await h.image();
-  assert.match(h.last().body, /Imagen válida recibida! Llevas 1 foto/);
+  assert.match(h.last().body, /Imagen válida recibida! ¿Deseas adjuntar otra foto/);
   await h.btn("foto_mas"); await h.image();
-  assert.match(h.last().body, /Llevas 2 foto/);
+  assert.match(h.last().body, /2 imágenes recibidas/);
   await h.btn("foto_listo");
   assert.equal(h.last().type, "list"); assert.match(h.last().body, /Seleccione la Zona/);
   assert.deepEqual(h.last().rows.map((r) => r.id), ["zona:Lima Sur", "zona:Lima Centro", "zona:Lima Este"]);   // orden del ECO anterior
@@ -204,6 +204,22 @@ test("saludos globales reinician; 'reservar' arranca la reserva; 30 min sin acti
   await h.text("20100047218");
   assert.match(h.last().body, /Pasaron más de 30 minutos sin actividad/); assert.match(h.last().body, /¡Hola! \*Carla Prueba\*/);
   assert.equal(h.store.sesiones.get(h.from).paso, "menu");
+});
+
+test("álbum de fotos: varias fotos seguidas → una sola respuesta con el total", async () => {
+  const store = memStore(); const out = [];
+  const sunat = { enabled: true, consultar: async () => ({ razon_social: "ACME SAC", estado: "ACTIVO", condicion: "HABIDO" }) };
+  const flow = createFlow({ store, wa: fakeWa(out), sunat, fotoAgruparMs: 30 });
+  const from = "51999000222";
+  const send = (m) => flow.handle({ from, name: "Ana", msg: { text: null, buttonId: null, buttonTitle: null, image: null, document: null, location: null, ...m } });
+  await send({ text: "hola" }); await send({ buttonId: "menu_reservar" }); await send({ text: "20100047218" }); await send({ buttonId: "si" }); await send({ buttonId: "si" }); await send({ text: "papel" });
+  out.length = 0;
+  await send({ image: { id: "a" } }); await send({ image: { id: "b" } }); await send({ image: { id: "c" } }); await send({ image: { id: "d" } });
+  assert.equal(out.length, 0, "no responde por cada foto");
+  await new Promise((r) => setTimeout(r, 120));
+  assert.equal(out.length, 1, "una sola respuesta");
+  assert.match(out[0].body, /4 imágenes recibidas/);
+  assert.equal(store.sesiones.get(from).datos.fotos.length, 4);
 });
 
 test("peso mínimo: 'No' termina amablemente y vuelve al menú", async () => {

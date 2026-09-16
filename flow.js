@@ -72,7 +72,7 @@ const diasTexto = (dias = []) => {
 };
 const fechaTitulo = (iso) => { const p = U.parseIsoDate(iso); return `${String(p.d).padStart(2, "0")} de ${U.MESES[p.m - 1]}`; };
 
-function createFlow({ store, wa, sunat = null, mailer = null, constancias = null }) {
+function createFlow({ store, wa, sunat = null, mailer = null, constancias = null, fotoAgruparMs = Number(process.env.FOTO_AGRUPAR_MS) || 4000 }) {
   // ── Correos fire-and-forget ──
   function correo(tipo, reserva, extra) {
     if (!mailer?.enabled) return;
@@ -166,11 +166,12 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
   }
   async function askFoto(ctx) {
     await go(ctx, "foto");
-    await say(ctx, "📤 *Obligatorio*: Adjunte una *fotografía* clara de los residuos que desea donar.\n\n_Su imagen nos permitirá calcular con mayor precisión el espacio y peso necesarios para programar el recojo._");
+    await say(ctx, "📤 *Obligatorio*: Adjunte una *fotografía* clara de los residuos que desea donar. Puede enviar varias a la vez.\n\n_Su imagen nos permitirá calcular con mayor precisión el espacio y peso necesarios para programar el recojo._");
   }
   async function askFotoMas(ctx) {
     await go(ctx, "foto_mas");
-    await ask(ctx, `✅ ¡Imagen válida recibida! Llevas ${ctx.datos.fotos.length} foto(s). ¿Deseas adjuntar otra?`, [{ id: BTN.fotoMas, title: "📷 Otra foto" }, { id: BTN.fotoListo, title: "✅ Continuar" }]);
+    const n = (ctx.datos.fotos || []).length;
+    await ask(ctx, n === 1 ? "✅ ¡Imagen válida recibida! ¿Deseas adjuntar otra foto?" : `✅ ¡${n} imágenes recibidas! ¿Deseas adjuntar otra foto?`, [{ id: BTN.fotoMas, title: "📷 Otra foto" }, { id: BTN.fotoListo, title: "✅ Continuar" }]);
   }
 
   // ── Zona → distrito → día → fecha ──
@@ -373,6 +374,21 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
   }
 
   // ── Imagen ──
+  // Un álbum llega como varias fotos seguidas: se guardan todas y se responde UNA vez,
+  // cuando pasan `fotoAgruparMs` sin recibir otra (por usuario).
+  const fotoTimers = new Map();
+  function responderFotosAgrupado(ctx) {
+    if (fotoAgruparMs <= 0) return askFotoMas(ctx);
+    clearTimeout(fotoTimers.get(ctx.from));
+    fotoTimers.set(ctx.from, setTimeout(async () => {
+      fotoTimers.delete(ctx.from);
+      try {
+        const s = await store.getSesion(ctx.from); // estado más reciente (pueden haber entrado más fotos)
+        if (!s || s.paso !== "foto_mas") return;
+        await askFotoMas({ from: ctx.from, name: ctx.name, paso: s.paso, datos: s.datos || {} });
+      } catch (err) { console.error("❌ Fotos agrupadas:", err.message); }
+    }, fotoAgruparMs));
+  }
   async function handleImage(ctx, image) {
     try {
       const { buffer, mimeType, size } = await wa.downloadMedia(image.id);
@@ -381,7 +397,7 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
       const fotos = [...(ctx.datos.fotos || []), url];
       await store.logMensaje(ctx.from, "user", `[foto] ${url}`, { paso: ctx.paso });
       await go(ctx, "foto_mas", { fotos });
-      return askFotoMas(ctx);
+      return responderFotosAgrupado(ctx);
     } catch (err) {
       console.error("❌ Foto:", err.message);
       return say(ctx, "No pude recibir la foto 😕. ¿Puedes enviarla de nuevo?");
@@ -505,7 +521,7 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
           if (ctx.datos.corrigiendo) return askConfirmar(ctx);
           return askZona(ctx);
         }
-        if (btn === BTN.fotoMas || RE_SI.test(texto) || /otra|m[aá]s/i.test(texto)) { await go(ctx, "foto"); return say(ctx, "📷 Envíe la siguiente fotografía."); }
+        if (btn === BTN.fotoMas || RE_SI.test(texto) || /otra|m[aá]s/i.test(texto)) { await go(ctx, "foto"); return say(ctx, "📷 Envíe la siguiente fotografía (puede seleccionar varias a la vez)."); }
         return askFotoMas(ctx);
 
       case "zona": {

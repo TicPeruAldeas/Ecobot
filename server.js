@@ -101,37 +101,42 @@ app.post("/webhook", (req, res) => {
   if (!verifyMetaSignature(req)) { console.warn("🔏 Firma de Meta inválida — rechazado"); return res.sendStatus(403); }
   res.sendStatus(200);
 
-  const value = req.body?.entry?.[0]?.changes?.[0]?.value;
-  const message = value?.messages?.[0];
-  if (!message) return; // statuses (entregado/leído) u otros eventos
+  // Meta puede agrupar varios cambios y varios mensajes (p. ej. un álbum de fotos) en un solo POST:
+  // se procesan TODOS, en orden, cada uno por la cola de su usuario.
+  for (const entry of req.body?.entry || []) {
+    for (const change of entry.changes || []) {
+      const value = change.value;
+      const mensajes = value?.messages || [];
+      if (mensajes.length === 0) continue; // statuses (entregado/leído) u otros eventos
+      const incomingId = value?.metadata?.phone_number_id;
+      if (incomingId && incomingId !== wa.phoneNumberId) { console.log(`⏭️  Ignorando número ajeno: ${incomingId}`); continue; }
+      const name = value?.contacts?.[0]?.profile?.name || null;
 
-  const incomingId = value?.metadata?.phone_number_id;
-  if (incomingId && incomingId !== wa.phoneNumberId) { console.log(`⏭️  Ignorando número ajeno: ${incomingId}`); return; }
-
-  const ageMs = Date.now() - Number(message.timestamp) * 1000;
-  if (Number.isFinite(ageMs) && ageMs > MAX_AGE_MS) { console.log(`⏭️  Mensaje viejo (${Math.round(ageMs / 1000)}s): ${message.id}`); return; }
-  if (alreadyProcessed(message.id)) { console.log(`⏭️  Duplicado: ${message.id}`); return; }
-
-  const from = message.from;
-  if (!permitido(from)) { console.log(`🧪 Ignorado (fuera de la lista de prueba): ${from}`); return; }
-  const name = value?.contacts?.[0]?.profile?.name || null;
-  const msg = parseIncoming(message);
-  if (!msg.text && !msg.buttonId && !msg.image && !msg.document && !msg.location) {
-    console.log(`⏭️  Tipo no soportado (${msg.type}) de ${from}`);
-    runSerialized(from, () => wa.text(from, "Por ahora solo puedo leer texto, botones y fotos 🙂"));
-    return;
-  }
-  console.log(`📩 ${from}${name ? ` (${name})` : ""}: ${msg.text || msg.buttonId || msg.type}`);
-  wa.markRead(message.id);
-
-  runSerialized(from, async () => {
-    try {
-      await flow.handle({ from, name, msg });
-    } catch (err) {
-      console.error(`❌ Error en flujo [${from}]:`, err.message, err.original || "");
-      await wa.text(from, "Disculpa, tuve un problema técnico. Escribe *menú* para continuar.").catch(() => {});
+      for (const message of mensajes) {
+        const ageMs = Date.now() - Number(message.timestamp) * 1000;
+        if (Number.isFinite(ageMs) && ageMs > MAX_AGE_MS) { console.log(`⏭️  Mensaje viejo (${Math.round(ageMs / 1000)}s): ${message.id}`); continue; }
+        if (alreadyProcessed(message.id)) { console.log(`⏭️  Duplicado: ${message.id}`); continue; }
+        const from = message.from;
+        if (!permitido(from)) { console.log(`🧪 Ignorado (fuera de la lista de prueba): ${from}`); continue; }
+        const msg = parseIncoming(message);
+        if (!msg.text && !msg.buttonId && !msg.image && !msg.document && !msg.location) {
+          console.log(`⏭️  Tipo no soportado (${msg.type}) de ${from}`);
+          if (!["reaction", "sticker"].includes(msg.type)) runSerialized(from, () => wa.text(from, "Por ahora solo puedo leer texto, botones y fotos 🙂"));
+          continue;
+        }
+        console.log(`📩 ${from}${name ? ` (${name})` : ""}: ${msg.text || msg.buttonId || msg.type}`);
+        wa.markRead(message.id);
+        runSerialized(from, async () => {
+          try {
+            await flow.handle({ from, name, msg });
+          } catch (err) {
+            console.error(`❌ Error en flujo [${from}]:`, err.message, err.original || "");
+            await wa.text(from, "Disculpa, tuve un problema técnico. Escribe *menú* para continuar.").catch(() => {});
+          }
+        });
+      }
     }
-  });
+  }
 });
 
 // ── Notificar a un donante desde el panel (reprogramación/cancelación) ──

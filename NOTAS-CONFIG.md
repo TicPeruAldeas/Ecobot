@@ -17,7 +17,7 @@ Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienv
 | Donante recurrente | Si el número ya reservó, ofrece reutilizar RUC, empresa, dirección y correo; dirección y correo se confirman en vez de reescribirse. |
 | Peso mínimo | Mensaje configurable (`mensaje_peso_minimo`, `peso_minimo_kg` = 250) y pregunta *Sí/No*. Con *No* despide y vuelve al menú. |
 | Residuos | Texto libre ("papel y plástico, 300 kg"). Se guarda tal cual en `cantidad` y se detectan etiquetas en `materiales` (Papel, Cartón, Plástico, Metal / chatarra, RAEE, Mobiliario, Vidrio, Ropa / textil, Otros). |
-| Fotos | Obligatoria; **una o varias** ("📷 Otra foto / ✅ Continuar"). Se guardan en Supabase Storage y se ven en la ficha del panel. |
+| Fotos | Obligatoria; **una o varias**. Un álbum (varias fotos a la vez) se recibe completo y el bot responde una sola vez con el total (`FOTO_AGRUPAR_MS`, 4 s). Botones "📷 Otra foto / ✅ Continuar". Se guardan en Supabase Storage y se ven en la ficha del panel. |
 | Zona → distrito → día | Lista de **zonas** (`eco_distritos.zona`, editable en panel → Rutas) → distritos de la zona con "Solo lunes y viernes" → si el distrito tiene varios días, botones del día. Si escribe el distrito, se acepta directo. Sin zonas definidas, pide el distrito por texto. |
 | Fecha | Solo fechas del día elegido, con cupos y bloqueos; confirma "📅 Fecha seleccionada … ¿Desea reservar esta fecha?". |
 | Dirección y correo | Cada uno con confirmación *¿Es correcta?*. |
