@@ -139,7 +139,7 @@
       <span class="muted">Los días marcados son los días de ruta en que se ofrece recojo para ese distrito.</span>
     </div>
     <div class="wrap"><table>
-      <thead><tr><th>Distrito</th><th>Alias</th><th>Días</th><th>Activo</th><th></th></tr></thead>
+      <thead><tr><th>Distrito</th><th>Zona</th><th>Alias</th><th>Días</th><th>Activo</th><th></th></tr></thead>
       <tbody id="tDistritos"></tbody>
     </table></div>
   </section>
@@ -411,17 +411,20 @@ async function saveFecha(fecha) {
 async function loadDistritos() {
   DISTRITOS = await api("/distritos");
   $("#fDistrito").innerHTML = `<option value="">Todos</option>` + DISTRITOS.map((d) => `<option>${esc(d.nombre)}</option>`).join("");
-  $("#tDistritos").innerHTML = DISTRITOS.map((d) => `<tr>
-    <td><b>${esc(d.nombre)}</b></td><td class="muted">${(d.aliases || []).join(", ")}</td>
+  $("#tDistritos").innerHTML = [...DISTRITOS].sort((a, b) => String(a.zona || "zzz").localeCompare(String(b.zona || "zzz")) || a.nombre.localeCompare(b.nombre)).map((d) => `<tr>
+    <td><b>${esc(d.nombre)}</b></td><td>${d.zona ? `<span class="chip">${esc(d.zona)}</span>` : "<span class='muted'>sin zona</span>"}</td><td class="muted">${(d.aliases || []).join(", ")}</td>
     <td>${(d.dias || []).map((n) => `<span class="chip">${DIAS[n]}</span>`).join("") || "<span class='muted'>sin ruta</span>"}</td>
     <td>${d.activo ? "✅" : "—"}</td>
     <td>${puedeOperar() ? `<button class="b sec" onclick='editDistrito(${JSON.stringify(d).replace(/'/g, "&#39;")})'>Editar</button>` : ""}</td>
   </tr>`).join("");
 }
 function editDistrito(d) {
-  d = d || { nombre: "", aliases: [], dias: [], activo: true };
+  d = d || { nombre: "", aliases: [], dias: [], activo: true, zona: "" };
+  const zonas = [...new Set(DISTRITOS.map((x) => x.zona).filter(Boolean))].sort();
   openModal(`<h2>${d.id ? "Editar" : "Nuevo"} distrito</h2>
-    <div class="actions"><label>Nombre <input id="dNombre" value="${esc(d.nombre)}" style="width:240px"></label></div>
+    <div class="actions"><label>Nombre <input id="dNombre" value="${esc(d.nombre)}" style="width:240px"></label>
+      <label>Zona <input id="dZona" list="zonasList" value="${esc(d.zona || "")}" placeholder="p. ej. Lima Sur" style="width:200px"><datalist id="zonasList">${zonas.map((z) => `<option value="${esc(z)}">`).join("")}</datalist></label></div>
+    <p class="muted">La zona agrupa los distritos en el bot (el donante elige zona → distrito). Sin zonas definidas, el bot pide el distrito por texto.</p>
     <div class="actions"><label>Alias (separados por coma) <input id="dAlias" value="${esc((d.aliases || []).join(", "))}" style="width:320px"></label></div>
     <div class="actions"><span class="muted">Días de ruta:</span><div class="days">${[1,2,3,4,5,6,7].map((n) => `<label><input type="checkbox" class="dDia" value="${n}" ${(d.dias || []).includes(n) ? "checked" : ""}>${DIAS[n]}</label>`).join("")}</div></div>
     <div class="actions"><label><input type="checkbox" id="dActivo" ${d.activo ? "checked" : ""}> Activo (visible para los donantes)</label></div>
@@ -429,7 +432,7 @@ function editDistrito(d) {
 }
 async function saveDistrito(id) {
   try {
-    await api("/distritos", { method: "POST", body: { id, nombre: $("#dNombre").value, aliases: $("#dAlias").value.split(",").map((s) => s.trim()).filter(Boolean), dias: [...document.querySelectorAll(".dDia:checked")].map((c) => Number(c.value)), activo: $("#dActivo").checked } });
+    await api("/distritos", { method: "POST", body: { id, nombre: $("#dNombre").value, zona: $("#dZona").value, aliases: $("#dAlias").value.split(",").map((s) => s.trim()).filter(Boolean), dias: [...document.querySelectorAll(".dDia:checked")].map((c) => Number(c.value)), activo: $("#dActivo").checked } });
     toast("Distrito guardado"); closeModal(); loadDistritos();
   } catch (e) { toast("Error: " + e.message); }
 }

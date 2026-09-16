@@ -63,6 +63,22 @@ function createWhatsApp({ phoneNumberId, token }) {
 
   const markRead = (messageId) => post({ status: "read", message_id: messageId }).catch(() => {});
 
+  // Sube un archivo a Meta y devuelve el media id (para enviarlo como documento/imagen).
+  async function uploadMedia(buffer, mimeType, filename) {
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", mimeType);
+    form.append("file", new Blob([buffer], { type: mimeType }), filename);
+    const res = await fetch(`${GRAPH}/${phoneNumberId}/media`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.id) throw new Error(`WhatsApp media ${res.status}: ${JSON.stringify(data)}`);
+    return data.id;
+  }
+  const document = (to, mediaId, filename, caption) => post({
+    to, type: "document",
+    document: { id: mediaId, filename: String(filename).slice(0, 240), ...(caption ? { caption: String(caption).slice(0, 1024) } : {}) },
+  });
+
   // Descarga un medio recibido (foto). Devuelve { buffer, mimeType }.
   async function downloadMedia(mediaId) {
     const meta = await fetch(`${GRAPH}/${mediaId}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -74,7 +90,7 @@ function createWhatsApp({ phoneNumberId, token }) {
     return { buffer, mimeType: info.mime_type || "image/jpeg", size: info.file_size || buffer.length };
   }
 
-  return { text, buttons, list, template, markRead, downloadMedia, phoneNumberId };
+  return { text, buttons, list, template, markRead, downloadMedia, uploadMedia, document, phoneNumberId };
 }
 
 // Extrae lo útil de un mensaje entrante del webhook.

@@ -50,6 +50,7 @@ function createStore(supabase, { bucket = "eco-fotos" } = {}) {
       aliases: Array.isArray(d.aliases) ? d.aliases.map((a) => String(a).trim()).filter(Boolean) : [],
       dias: Array.isArray(d.dias) ? [...new Set(d.dias.map(Number).filter((n) => n >= 1 && n <= 7))].sort() : [],
       activo: d.activo !== false,
+      zona: String(d.zona || "").trim() || null,
       updated_at: new Date().toISOString(),
     };
     if (!row.nombre) throw new Error("Nombre de distrito vacío");

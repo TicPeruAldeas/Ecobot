@@ -1,29 +1,34 @@
 # ECO — Notas de configuración y puesta en marcha
 
 Bot de WhatsApp de **Aldeas Infantiles SOS Perú** para donaciones de material reciclable. Reemplaza al ECO de Chatfuel + Calendly + Make. Solo WhatsApp Cloud API + Railway + Supabase; el panel `/admin` sustituye a la hoja de Google.
-Última actualización: 2026-09-15.
+Última actualización: 2026-09-16.
 
 > ⚠️ Este archivo **no contiene secretos**. Los valores viven en Railway.
 
 ---
 
-## 1. Qué hace
+## 1. Qué hace (guion del ECO anterior, 2026-09-16)
 
-| Etapa | Cómo lo resuelve |
+Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienvenida usa el texto del ECO anterior (`mensaje_bienvenida`, con `{nombre}`) e incluye la aceptación de datos (Ley 29733).
+
+| Paso | Cómo lo resuelve |
 |---|---|
-| Bienvenida y consentimiento | Tarjeta con botones *Acepto / No por ahora*. Se recuerda 30 días (`CONSENT_DAYS`). |
-| Identificación | Persona (nombre + DNI/RUC) o Empresa (RUC → **consulta SUNAT** trae la razón social y se confirma con un botón → contacto). Valida DNI 8 dígitos, RUC 11 dígitos con dígito verificador, correo. Si SUNAT no responde, pide la razón social a mano. |
-| Atención y acceso | Días en que pueden atender (lun–vie / incluye sábados), horario y, para empresas, requisitos de acceso (SCTR, documentos, EPP). Si solo atienden lun–vie no se ofrecen sábados. *(punto 1 del correo de Erika, 2026-09-14)* |
-| Donante recurrente | Si el número ya donó, ofrece reutilizar datos y dirección. |
-| Ubicación | Distrito por texto con alias y tolerancia a errores (`SJL`, `Surco`, `mirafores`); lista si es ambiguo; catálogo administrable. |
-| Materiales | Lista (configurable) con opción *Otros* y cantidad libre; sin límite de ítems. |
-| Foto | Obligatoria (configurable). Se descarga de Meta y se guarda en Supabase Storage (`eco-fotos`, URL pública). |
-| Fechas | Días de ruta del distrito + anticipación mínima (24 h hasta la hora de inicio) + bloqueos + cupos por fecha. Se muestran solo fechas usables. |
-| Reserva | Función SQL `eco_reservar` con lock por fecha: dos personas no pueden tomar el último cupo. Código `ECO-AAMMDD-XXXX`. |
-| Confirmación | Mensaje con código, fecha, dirección y materiales. La reserva queda en `eco_reservas` y se ve al instante en el panel. |
-| Mis recojos | Reprogramar (libera cupo anterior, toma el nuevo) y cancelar (libera cupo). Todo con trazabilidad en `eco_reserva_eventos`. |
-| Recordatorios | Barrido cada 10 min; avisa N horas antes (`recordatorio_horas`, default 24) por **WhatsApp y por correo**. El correo llega siempre; por WhatsApp, fuera de la ventana de 24 h Meta exige **plantilla aprobada** (ver §5). |
-| Panel `/admin` | Resumen, reservas (estado, kilos por material, nota, reprogramar, cancelar, constancia de donación en PDF por correo), calendario (bloqueos, cupo especial), rutas, conversaciones, configuración, usuarios y auditoría, exportar Excel. |
+| RUC | Pide el RUC (11 dígitos, dígito verificador), lo confirma con *Sí, continuar / No, regresar* y consulta **SUNAT**: "Hola *RAZÓN SOCIAL*, bienvenido ✊". Si SUNAT no responde, pide la razón social a mano. Solo empresas (o personas con RUC 10). |
+| Donante recurrente | Si el número ya reservó, ofrece reutilizar RUC, empresa, dirección y correo; dirección y correo se confirman en vez de reescribirse. |
+| Peso mínimo | Mensaje configurable (`mensaje_peso_minimo`, `peso_minimo_kg` = 250) y pregunta *Sí/No*. Con *No* despide y vuelve al menú. |
+| Residuos | Texto libre ("papel y plástico, 300 kg"). Se guarda tal cual en `cantidad` y se detectan etiquetas en `materiales` (Papel, Cartón, Plástico, Metal / chatarra, RAEE, Mobiliario, Vidrio, Ropa / textil, Otros). |
+| Fotos | Obligatoria; **una o varias** ("📷 Otra foto / ✅ Continuar"). Se guardan en Supabase Storage y se ven en la ficha del panel. |
+| Zona → distrito → día | Lista de **zonas** (`eco_distritos.zona`, editable en panel → Rutas) → distritos de la zona con "Solo lunes y viernes" → si el distrito tiene varios días, botones del día. Si escribe el distrito, se acepta directo. Sin zonas definidas, pide el distrito por texto. |
+| Fecha | Solo fechas del día elegido, con cupos y bloqueos; confirma "📅 Fecha seleccionada … ¿Desea reservar esta fecha?". |
+| Dirección y correo | Cada uno con confirmación *¿Es correcta?*. |
+| Atención y acceso | "¿En qué días y horario pueden recibir al equipo?" (botón *Sin restricción*) y requisitos de acceso (botón *Ninguno*). *(punto 1 del correo de Erika)* |
+| Comentario | "¿Desea añadir un comentario?" *Sí, añadir / No, continuar*. |
+| Resumen y código | Resumen con RUC, empresa, distrito, dirección, residuos, fotos, fecha, correo; botones *✅ Sí, confirmar / ✏️ Corregir / ❌ No, cancelar*. Código **RESER-nnnnn** (secuencia `eco_reserva_numero_seq`, arranca en 100; ajustable con `ALTER SEQUENCE … RESTART`). Mensaje final configurable (`mensaje_final`, con `{codigo}` y `{horario}`). |
+| Reserva | Función SQL `eco_reservar` con lock por fecha: dos personas no pueden tomar el último cupo. |
+| Mis reservas | Reprogramar (libera cupo anterior, toma el nuevo) y cancelar (libera cupo). Trazabilidad en `eco_reserva_eventos`. |
+| Constancias | El donante escribe su RUC y recibe la constancia más reciente **como PDF por WhatsApp** (las emite el panel). |
+| Recordatorios | Barrido cada 10 min; avisa N horas antes por **WhatsApp y correo**. Por WhatsApp, fuera de 24 h Meta exige plantilla (§5). |
+| Panel `/admin` | Resumen, reservas (fotos, estado, kilos por material, nota, reprogramar, cancelar, constancia PDF por correo), calendario, rutas (zona/días/alias), conversaciones, configuración, usuarios, exportar Excel. |
 
 ---
 

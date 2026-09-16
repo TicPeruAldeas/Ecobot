@@ -385,3 +385,50 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- 2026-09-16 · Flujo según el guion del ECO anterior: zonas, código RESER-nnnnn,
+-- peso mínimo y textos. (Idempotente.)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+alter table public.eco_distritos add column if not exists zona text;   -- p. ej. "Lima Sur"
+create index if not exists eco_distritos_zona_idx on public.eco_distritos (zona);
+
+-- Código correlativo legible (continúa la numeración del bot anterior).
+create sequence if not exists public.eco_reserva_numero_seq start with 100;
+create or replace function public.eco_nuevo_codigo()
+returns text language plpgsql as $$
+begin
+  return 'RESER-' || lpad(nextval('public.eco_reserva_numero_seq')::text, 5, '0');
+end $$;
+
+insert into public.eco_config (key, value) values
+  ('peso_minimo_kg', '250'),
+  ('horario_recojo', '9:00 a. m. a 5:30 p. m.'),
+  ('mensaje_peso_minimo', 'Antes de continuar con su programación, le recordamos que el peso mínimo requerido para el recojo es de *{peso} kg* por cada punto.
+Como referencia, *un contenedor de cartón lleno de papel pesa aproximadamente entre 35 y 40 kg*; por ello, si desea donar únicamente papel, le sugerimos solicitar el recojo cuando cuente con el equivalente a *8 contenedores llenos*.
+
+_Esta referencia no aplica para otros residuos como plástico, cartón, entre otros materiales, ya que su mayor volumen hace que, dentro del contenedor, representen un menor peso en comparación con el papel._'),
+  ('mensaje_final', '✅ *¡Reserva registrada exitosamente!*
+
+📋 *Cód. Reserva: {codigo}*
+
+Estaremos evaluando la información ingresada y nos comunicaremos con usted para confirmar su reserva.
+
+Recuerda que el horario de recolección es de {horario}.
+
+*Gracias por contribuir con el reciclaje* ♻️')
+on conflict (key) do nothing;
+
+-- Bienvenida con el texto del ECO anterior ({nombre} se reemplaza por el nombre de WhatsApp).
+-- Solo se reemplaza si nadie la editó desde el panel.
+update public.eco_config
+   set value = '¡Hola! *{nombre}*
+Soy Eco ♻️, tu asistente de reciclaje.
+Bienvenido(a) al Programa de Reciclaje Integral de Aldeas Infantiles SOS Perú, donde cada residuo reciclado se convierte en una oportunidad para la niñez, promoviendo un futuro más sostenible. 🌱✨
+
+♻️ Reduce, reutiliza, recicla… ¡y transforma el mundo con nosotros!
+📅 Agenda aquí tu recolección y únete al cambio.'
+ where key = 'mensaje_bienvenida' and value like '¡Hola! Soy *ECO*%';
+
+notify pgrst, 'reload schema';
