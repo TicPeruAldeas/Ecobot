@@ -61,6 +61,30 @@ function createWhatsApp({ phoneNumberId, token }) {
     },
   });
 
+  // WhatsApp Flow (formulario nativo, p. ej. selector de fotos). flowId = id del Flow publicado en WhatsApp Manager.
+  // La respuesta llega al webhook como interactive.nfm_reply.response_json (ver parseIncoming → flowReply).
+  const flow = (to, body, { flowId, cta, flowToken, screen, data, header, footer, mode } = {}) => post({
+    to, type: "interactive",
+    interactive: {
+      type: "flow",
+      ...(header ? { header: { type: "text", text: String(header).slice(0, 60) } } : {}),
+      body: { text: String(body).slice(0, 1024) },
+      ...(footer ? { footer: { text: String(footer).slice(0, 60) } } : {}),
+      action: {
+        name: "flow",
+        parameters: {
+          flow_message_version: "3",
+          flow_id: String(flowId),
+          flow_cta: String(cta || "Abrir").slice(0, 30),
+          flow_token: String(flowToken || `${to}:${Date.now()}`),
+          ...(mode ? { mode } : {}),
+          flow_action: "navigate",
+          ...(screen ? { flow_action_payload: { screen, ...(data ? { data } : {}) } } : {}),
+        },
+      },
+    },
+  });
+
   const markRead = (messageId) => post({ status: "read", message_id: messageId }).catch(() => {});
 
   // Sube un archivo a Meta y devuelve el media id (para enviarlo como documento/imagen).
@@ -90,7 +114,7 @@ function createWhatsApp({ phoneNumberId, token }) {
     return { buffer, mimeType: info.mime_type || "image/jpeg", size: info.file_size || buffer.length };
   }
 
-  return { text, buttons, list, template, markRead, downloadMedia, uploadMedia, document, phoneNumberId };
+  return { text, buttons, list, template, flow, markRead, downloadMedia, uploadMedia, document, phoneNumberId };
 }
 
 // Extrae lo útil de un mensaje entrante del webhook.
@@ -102,7 +126,12 @@ function parseIncoming(message) {
   const image = message.image ? { id: message.image.id, mimeType: message.image.mime_type, caption: message.image.caption || null } : null;
   const document = message.document ? { id: message.document.id, mimeType: message.document.mime_type, filename: message.document.filename } : null;
   const location = message.location ? { lat: message.location.latitude, lng: message.location.longitude, name: message.location.name, address: message.location.address } : null;
-  return { type, text, buttonId, buttonTitle, image, document, location };
+  // Respuesta de un WhatsApp Flow: response_json es un string JSON con los campos del formulario + flow_token.
+  let flowReply = null;
+  if (message.interactive?.type === "nfm_reply" && message.interactive.nfm_reply?.response_json) {
+    try { flowReply = JSON.parse(message.interactive.nfm_reply.response_json); } catch { flowReply = { _raw: message.interactive.nfm_reply.response_json }; }
+  }
+  return { type, text, buttonId, buttonTitle, image, document, location, flowReply };
 }
 
 module.exports = { createWhatsApp, parseIncoming };

@@ -17,7 +17,7 @@ Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienv
 | Donante recurrente | Si el número ya reservó, ofrece reutilizar RUC, empresa, dirección y correo; dirección y correo se confirman en vez de reescribirse. |
 | Peso mínimo | Mensaje configurable (`mensaje_peso_minimo`, `peso_minimo_kg` = 250) y pregunta *Sí/No*. Con *No* despide y vuelve al menú. |
 | Residuos | Texto libre ("papel y plástico, 300 kg"). Se guarda tal cual en `cantidad` y se detectan etiquetas en `materiales` (Papel, Cartón, Plástico, Metal / chatarra, RAEE, Mobiliario, Vidrio, Ropa / textil, Otros). |
-| Fotos | Obligatoria; **una o varias**. Un álbum (varias fotos a la vez) se recibe completo y el bot responde una sola vez con el total (`FOTO_AGRUPAR_MS`, 4 s). Botones "📷 Otra foto / ✅ Continuar". Se guardan en Supabase Storage y se ven en la ficha del panel. |
+| Fotos | Obligatoria; **una o varias**. Un álbum (varias fotos a la vez) se recibe completo y el bot responde una sola vez con el total (`FOTO_AGRUPAR_MS`, 4 s). Botones "📷 Otra foto / ✅ Continuar". Se guardan en Supabase Storage y se ven en la ficha del panel. Opcional: selector nativo de hasta 10 fotos con un **WhatsApp Flow** (§5b, `WA_FLOW_FOTOS_ID`). |
 | Zona → distrito → día | Lista de **zonas** (`eco_distritos.zona`, editable en panel → Rutas) → distritos de la zona con "Solo lunes y viernes" → si el distrito tiene varios días, botones del día. Si escribe el distrito, se acepta directo. Sin zonas definidas, pide el distrito por texto. |
 | Fecha | Solo fechas del día elegido, con cupos y bloqueos; confirma "📅 Fecha seleccionada … ¿Desea reservar esta fecha?". |
 | Dirección y correo | Cada uno con confirmación *¿Es correcta?*. |
@@ -60,6 +60,8 @@ Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienv
 | `WA_TEMPLATE_RECORDATORIO_PARAMS` | opcional | Orden de los parámetros del cuerpo. Default `nombre,fecha,direccion,codigo` |
 | `WA_TEMPLATE_CAMBIO` | opcional | Plantilla para avisar reprogramación/cancelación hecha desde el panel (params: nombre, código, cambio) |
 | `WA_TEMPLATE_LANG` | opcional | Default `es` |
+| `WA_FLOW_FOTOS_ID` | opcional | Id del **WhatsApp Flow** `eco_fotos` (selector de fotos, ver §5b). Vacío = el donante manda las fotos sueltas al chat |
+| `WA_FLOW_FOTOS_MODE` | opcional | `draft` para probar el Flow antes de publicarlo. Vacío = publicado |
 | `STORAGE_BUCKET` | opcional | Default `eco-fotos` |
 | `SESSION_TTL_MINUTES` | opcional | Inactividad que reinicia la conversación desde la bienvenida (30). Editable también en el panel (`sesion_minutos`). |
 | `CONSENT_DAYS` | opcional | Vigencia del consentimiento (30) |
@@ -95,6 +97,23 @@ Meta solo permite texto libre dentro de las 24 h posteriores al último mensaje 
 
 Cuando estén aprobadas: `WA_TEMPLATE_RECORDATORIO=eco_recordatorio`, `WA_TEMPLATE_CAMBIO=eco_cambio`.
 Mientras no existan, el bot intenta texto libre; si Meta lo rechaza queda registrado en el historial de la reserva y no se reintenta.
+
+---
+
+## 5b. WhatsApp Flow de fotos (opcional)
+
+Un **Flow** es un formulario nativo de WhatsApp. Aquí se usa solo para el paso de fotos: el donante toca *📷 Adjuntar fotos*, elige hasta 10 imágenes (cámara o galería) y las envía de una vez. No necesita servidor de datos ("endpoint") ni cifrado: la respuesta llega al webhook normal (`interactive.nfm_reply`) con los media ids, y el bot los descarga igual que una foto suelta. El JSON está en `flows/eco_fotos.json`.
+
+**Crear el Flow (una sola vez):**
+1. WhatsApp Manager → cuenta *Chatbots Tic* → **Flows** → *Crear flow*. Nombre `eco_fotos`, categoría *Other*, sin plantilla.
+2. En el editor, pestaña **JSON**: borrar el contenido y pegar `flows/eco_fotos.json`. Guardar. El preview de la derecha debe mostrar el selector de fotos. Si el editor exige otra `version`, cambiarla por la que sugiera (el selector de fotos existe desde la 4.0).
+3. Copiar el **ID del Flow** (aparece arriba, en la URL o en *⋯ → Detalles*).
+4. Probar sin publicar: en Railway `WA_FLOW_FOTOS_ID=<id>` y `WA_FLOW_FOTOS_MODE=draft`. En modo borrador solo lo reciben números de prueba/administradores de la app.
+5. Cuando funcione: *Publicar* el Flow en WhatsApp Manager y quitar `WA_FLOW_FOTOS_MODE`.
+
+**Comportamiento:** con `WA_FLOW_FOTOS_ID` vacío todo sigue como hasta ahora (fotos sueltas o álbum). Con el Flow activo, el bot lo ofrece en el paso de fotos y en *📷 Otra foto*, pero **también acepta fotos enviadas directamente al chat**. Si Meta rechaza el envío del Flow (no publicado, número sin permiso), el bot registra el error y pide las fotos por el chat. Simulador: `POST /simulate { "user_id": "…", "flow_reply": { "photos": [{ "id": "…" }] } }`.
+
+**Requisitos de Meta:** la app *Eco Reciclaje* debe tener el permiso `whatsapp_business_messaging` (ya lo tiene) y el número debe pertenecer a la WABA donde se crea el Flow. Para que un Flow publicado llegue a cualquier número, la app tiene que estar en modo *activo* (publicada), igual que para el resto de mensajes.
 
 ---
 

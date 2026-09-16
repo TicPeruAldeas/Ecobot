@@ -208,7 +208,7 @@ async function sweepRecordatorios() {
 const SIM_SECRET = process.env.INGEST_SECRET || process.env.ADMIN_SESSION_SECRET;
 app.post("/simulate", async (req, res) => {
   if (!SIM_SECRET || req.headers.authorization !== `Bearer ${SIM_SECRET}`) return res.status(401).json({ error: "No autorizado" });
-  const { user_id, text, button, image_url, name } = req.body || {};
+  const { user_id, text, button, image_url, name, flow_reply } = req.body || {};
   if (!user_id) return res.status(400).json({ error: "Falta user_id" });
   const out = [];
   const fakeWa = {
@@ -221,10 +221,12 @@ app.post("/simulate", async (req, res) => {
     downloadMedia: async () => ({ buffer: Buffer.from("fake"), mimeType: "image/jpeg", size: 4 }),
     uploadMedia: async () => "sim-media",
     document: async (_to, _id, filename, caption) => out.push({ type: "document", filename, caption }),
+    flow: async (_to, body, params) => out.push({ type: "flow", body, flowId: params.flowId, cta: params.cta }),
   };
   const simStore = { ...store, uploadFoto: async () => image_url || "https://example.com/foto-simulada.jpg" };
   const simFlow = createFlow({ store: simStore, wa: fakeWa, sunat, mailer, constancias });
-  const msg = { text: text || null, buttonId: button || null, buttonTitle: button || null, image: image_url ? { id: "sim" } : null, document: null, location: null, type: image_url ? "image" : text ? "text" : "interactive" };
+  // flow_reply: simula la respuesta del Flow de fotos, p. ej. { photos: [{ id: "a" }, { id: "b" }] }
+  const msg = { text: text || null, buttonId: button || null, buttonTitle: button || null, image: image_url ? { id: "sim" } : null, document: null, location: null, flowReply: flow_reply || null, type: image_url ? "image" : text ? "text" : "interactive" };
   try {
     await runSerialized(`sim:${user_id}`, () => simFlow.handle({ from: String(user_id), name: name || "Prueba", msg }));
     res.json({ respuestas: out });

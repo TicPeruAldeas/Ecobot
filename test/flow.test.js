@@ -277,3 +277,42 @@ test("constancias por WhatsApp: sin constancias avisa; con constancias envía el
   const doc = h.out.find((m) => m.type === "document");
   assert.ok(doc); assert.match(doc.filename, /Constancia-00007/); assert.match(doc.caption, /537 kg/);
 });
+
+test("WhatsApp Flow de fotos: se ofrece el formulario y su respuesta (nfm_reply) guarda todas las fotos", async () => {
+  const store = memStore(); const out = [];
+  const wa = fakeWa(out);
+  const enviados = [];
+  wa.flow = async (_t, body, params) => { enviados.push(params); out.push({ type: "flow", body, cta: params.cta }); };
+  const sunat = { enabled: true, consultar: async () => ({ razon_social: "ACME SAC", estado: "ACTIVO", condicion: "HABIDO" }) };
+  const flow = createFlow({ store, wa, sunat, fotoAgruparMs: 0, flowFotosId: "123456789" });
+  const from = "51999000333";
+  const send = async (m) => { out.length = 0; await flow.handle({ from, name: "Luis", msg: { text: null, buttonId: null, buttonTitle: null, image: null, document: null, location: null, flowReply: null, ...m } }); return out; };
+  await send({ text: "hola" }); await send({ buttonId: "menu_reservar" }); await send({ text: "20100047218" }); await send({ buttonId: "si" }); await send({ buttonId: "si" });
+  await send({ text: "papel y cartón" });
+  assert.equal(out[out.length - 1].type, "flow", "pide las fotos con un Flow");
+  assert.equal(enviados[0].flowId, "123456789"); assert.equal(enviados[0].screen, "FOTOS"); assert.match(enviados[0].cta, /Adjuntar fotos/);
+  // El donante elige 3 fotos en el formulario → llega una sola respuesta con los media ids
+  await send({ flowReply: { photos: [{ id: "m1", file_name: "a.jpg", mime_type: "image/jpeg" }, { id: "m2" }, { id: "m3" }], flow_token: "fotos:x" } });
+  assert.match(out[out.length - 1].body, /3 imágenes recibidas/);
+  assert.equal(store.sesiones.get(from).datos.fotos.length, 3);
+  // "Otra foto" vuelve a ofrecer el formulario; "Continuar" sigue a la zona
+  await send({ buttonId: "foto_mas" }); assert.equal(out[out.length - 1].type, "flow");
+  await send({ flowReply: { photos: [{ id: "m4" }] } }); assert.equal(store.sesiones.get(from).datos.fotos.length, 4);
+  await send({ buttonId: "foto_listo" }); assert.match(out[out.length - 1].body, /zona/i);
+  // Una foto suelta por el chat sigue funcionando aunque el Flow esté activo
+  assert.equal(store.sesiones.get(from).paso, "zona");
+});
+
+test("WhatsApp Flow de fotos: si el envío del Flow falla, cae al modo clásico (fotos por el chat)", async () => {
+  const store = memStore(); const out = [];
+  const wa = fakeWa(out); wa.flow = async () => { throw new Error("(#131009) Flow not published"); };
+  const sunat = { enabled: true, consultar: async () => ({ razon_social: "ACME SAC", estado: "ACTIVO", condicion: "HABIDO" }) };
+  const flow = createFlow({ store, wa, sunat, fotoAgruparMs: 0, flowFotosId: "123456789" });
+  const from = "51999000444";
+  const send = async (m) => { out.length = 0; await flow.handle({ from, name: "Rosa", msg: { text: null, buttonId: null, buttonTitle: null, image: null, document: null, location: null, flowReply: null, ...m } }); return out; };
+  await send({ text: "hola" }); await send({ buttonId: "menu_reservar" }); await send({ text: "20100047218" }); await send({ buttonId: "si" }); await send({ buttonId: "si" });
+  await send({ text: "vidrio" });
+  assert.equal(out[out.length - 1].type, "text"); assert.match(out[out.length - 1].body, /Adjunte una \*fotografía\*/);
+  await send({ image: { id: "img" } });
+  assert.match(out[out.length - 1].body, /Imagen válida recibida/);
+});

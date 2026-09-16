@@ -72,7 +72,9 @@ const diasTexto = (dias = []) => {
 };
 const fechaTitulo = (iso) => { const p = U.parseIsoDate(iso); return `${String(p.d).padStart(2, "0")} de ${U.MESES[p.m - 1]}`; };
 
-function createFlow({ store, wa, sunat = null, mailer = null, constancias = null, fotoAgruparMs = Number(process.env.FOTO_AGRUPAR_MS) || 4000 }) {
+function createFlow({ store, wa, sunat = null, mailer = null, constancias = null, fotoAgruparMs = Number(process.env.FOTO_AGRUPAR_MS) || 4000,
+  flowFotosId = (process.env.WA_FLOW_FOTOS_ID || "").trim() || null, flowFotosMode = (process.env.WA_FLOW_FOTOS_MODE || "").trim() || null }) {
+  const usaFlowFotos = Boolean(flowFotosId && typeof wa.flow === "function");
   // ── Correos fire-and-forget ──
   function correo(tipo, reserva, extra) {
     if (!mailer?.enabled) return;
@@ -166,7 +168,41 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
   }
   async function askFoto(ctx) {
     await go(ctx, "foto");
-    await say(ctx, "📤 *Obligatorio*: Adjunte una *fotografía* clara de los residuos que desea donar. Puede enviar varias a la vez.\n\n_Su imagen nos permitirá calcular con mayor precisión el espacio y peso necesarios para programar el recojo._");
+    const cuerpo = "📤 *Obligatorio*: Adjunte una *fotografía* clara de los residuos que desea donar. Puede enviar varias a la vez.\n\n_Su imagen nos permitirá calcular con mayor precisión el espacio y peso necesarios para programar el recojo._";
+    if (usaFlowFotos) {
+      // WhatsApp Flow con PhotoPicker: el donante elige hasta 10 fotos en un formulario nativo.
+      // Si el Flow falla (no publicado, permisos), se cae al modo clásico: fotos sueltas por el chat.
+      try {
+        await wa.flow(ctx.from, cuerpo + "\n\nToque el botón para adjuntar las fotos (también puede enviarlas directamente al chat).", {
+          flowId: flowFotosId, cta: "📷 Adjuntar fotos", flowToken: `fotos:${ctx.from}:${Date.now()}`, screen: "FOTOS", mode: flowFotosMode || undefined,
+        });
+        await store.logMensaje(ctx.from, "bot", "[flow fotos]", { paso: ctx.paso });
+        return;
+      } catch (err) { console.error("❌ Flow fotos (uso modo clásico):", err.message); }
+    }
+    await say(ctx, cuerpo);
+  }
+  // Respuesta del Flow de fotos: { photos: [{ id, file_name, mime_type, sha256 }], flow_token }.
+  // Los `id` son media ids normales de WhatsApp: se descargan igual que una foto suelta.
+  async function handleFlowFotos(ctx, reply) {
+    const lista = Array.isArray(reply?.photos) ? reply.photos : Object.values(reply || {}).find((v) => Array.isArray(v)) || [];
+    const ids = lista.map((f) => (typeof f === "string" ? f : f?.id || f?.media_id)).filter(Boolean);
+    if (!ids.length) return say(ctx, "No recibí ninguna fotografía 😕. Toque *📷 Adjuntar fotos* de nuevo o envíelas directamente al chat.");
+    const fotos = [...(ctx.datos.fotos || [])];
+    let fallidas = 0;
+    for (const id of ids.slice(0, 10)) {
+      try {
+        const { buffer, mimeType, size } = await wa.downloadMedia(id);
+        if (size > 10 * 1024 * 1024) { fallidas++; continue; }
+        const url = await store.uploadFoto(buffer, mimeType, ctx.from);
+        fotos.push(url);
+        await store.logMensaje(ctx.from, "user", `[foto] ${url}`, { paso: ctx.paso, flow: true });
+      } catch (err) { fallidas++; console.error("❌ Foto de Flow:", err.message); }
+    }
+    if (!fotos.length) return say(ctx, "No pude descargar las fotos 😕. ¿Puede enviarlas directamente al chat?");
+    await go(ctx, "foto_mas", { fotos });
+    if (fallidas) await say(ctx, `⚠️ ${fallidas} foto(s) no se pudieron recibir; las demás sí.`);
+    return askFotoMas(ctx);
   }
   async function askFotoMas(ctx) {
     await go(ctx, "foto_mas");
@@ -440,6 +476,9 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
       try { const { buffer, mimeType } = await wa.downloadMedia(msg.image.id); const url = await store.uploadFoto(buffer, mimeType, from); await go(ctx, ctx.paso, { fotos: [...(ctx.datos.fotos || []), url] }); await say(ctx, "📷 Foto guardada. Continuemos:"); } catch { /* ignorar */ }
     }
 
+    // Respuesta del Flow de fotos (formulario nativo). Vale en cualquier punto de la reserva.
+    if (msg.flowReply && ctx.datos.flujo === "reserva") return handleFlowFotos(ctx, msg.flowReply);
+
     switch (ctx.paso) {
       case "inicio":
         return showMenu(ctx, { bienvenida: true });
@@ -521,7 +560,10 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
           if (ctx.datos.corrigiendo) return askConfirmar(ctx);
           return askZona(ctx);
         }
-        if (btn === BTN.fotoMas || RE_SI.test(texto) || /otra|m[aá]s/i.test(texto)) { await go(ctx, "foto"); return say(ctx, "📷 Envíe la siguiente fotografía (puede seleccionar varias a la vez)."); }
+        if (btn === BTN.fotoMas || RE_SI.test(texto) || /otra|m[aá]s/i.test(texto)) {
+          if (usaFlowFotos) return askFoto(ctx); // vuelve a ofrecer el formulario de fotos
+          await go(ctx, "foto"); return say(ctx, "📷 Envíe la siguiente fotografía (puede seleccionar varias a la vez).");
+        }
         return askFotoMas(ctx);
 
       case "zona": {
