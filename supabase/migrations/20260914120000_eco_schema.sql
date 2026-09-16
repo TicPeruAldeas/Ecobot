@@ -501,3 +501,6 @@ begin
 end $$;
 
 notify pgrst, 'reload schema';
+
+-- 2026-09-16 · Reinicio por inactividad (minutos), editable desde el panel.
+insert into public.eco_config (key, value) values ('sesion_minutos', '30') on conflict (key) do nothing;

@@ -5,10 +5,16 @@
 const U = require("./util");
 const { fechasDisponibles } = require("./scheduling");
 
-const SESSION_TTL_MS = (Number(process.env.SESSION_TTL_HOURS) || 12) * 60 * 60 * 1000;
+// Inactividad tras la cual la conversación se reinicia desde la bienvenida.
+// Prioridad: eco_config.sesion_minutos (panel) → SESSION_TTL_MINUTES → SESSION_TTL_HOURS → 30 min.
+const SESSION_TTL_MS_DEFAULT = (Number(process.env.SESSION_TTL_MINUTES) || (Number(process.env.SESSION_TTL_HOURS) || 0) * 60 || 30) * 60 * 1000;
+const sessionTtlMs = (cfg) => (Number(cfg?.sesion_minutos) > 0 ? Number(cfg.sesion_minutos) * 60 * 1000 : SESSION_TTL_MS_DEFAULT);
 
-const RE_MENU = /^\s*(menu|menú|inicio|volver|salir|reiniciar|empezar de nuevo|cancelar todo)\s*$/i;
+const RE_MENU = /^\s*(menu|menú|volver|salir|reiniciar|empezar de nuevo|cancelar todo)\s*$/i;
 const RE_HOLA = /^\s*(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches|hi|hello|ola)\b/i;
+// Saludo "suelto" en cualquier paso → reinicia desde la bienvenida. "reservar" suelto → empieza la reserva.
+const RE_SALUDO_GLOBAL = /^\s*(hola|holi|holaa+|buenas|buen d[ií]a|buenos d[ií]as|buenas tardes|buenas noches|hi|hello|ola|eco|hola eco|eco hola|hey|inicio|empezar|comenzar|start)[\s!.,¡?]*$/i;
+const RE_RESERVAR_GLOBAL = /^\s*(reservar|reserva|quiero reservar|empezar reserva|nueva reserva|agendar|agendar recojo|programar recojo|quiero donar|donar)[\s!.,]*$/i;
 const RE_SI = /^\s*(s[ií]|si,? continuar|s[ií],? confirmar|s[ií],? a[ñn]adir|correcto|ok|dale|claro|confirmo|continuar)\b/i;
 const RE_NO = /^\s*(no|no,? modificar|no,? regresar|no,? continuar|no,? cancelar|ninguno|ninguna|omitir)\b/i;
 
@@ -98,13 +104,13 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
   const next = (ctx, siguiente) => (ctx.datos.corrigiendo ? askConfirmar(ctx) : siguiente(ctx));
 
   // ── Menú ──
-  async function showMenu(ctx, { bienvenida = false, intro = null } = {}) {
+  async function showMenu(ctx, { bienvenida = false, intro = null, nota = null } = {}) {
     const cfg = await store.getConfig();
     await go(ctx, "menu", { flujo: null });
     let texto;
     if (bienvenida) {
       const nombre = ctx.name ? ctx.name.split(" ")[0] : "";
-      texto = String(cfg.mensaje_bienvenida || "").replace(/\{nombre\}/g, nombre).replace(/\s*\n\s*\n\s*\n/g, "\n\n").trim() +
+      texto = (nota ? `${nota}\n\n` : "") + String(cfg.mensaje_bienvenida || "").replace(/\{nombre\}/g, nombre).replace(/\s*\n\s*\n\s*\n/g, "\n\n").trim() +
         `\n\n_Al continuar aceptas que usemos tus datos solo para coordinar el recojo y emitir tu constancia (Ley N.° 29733)._`;
     } else texto = intro || "¿Qué deseas hacer?";
     await ask(ctx, texto, [
@@ -383,15 +389,26 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
 
   // ── Punto de entrada ──
   async function handle({ from, name, msg }) {
-    const sesion = await store.getSesion(from);
-    const expirada = !sesion || Date.now() - new Date(sesion.updated_at).getTime() > SESSION_TTL_MS;
+    const [sesion, cfg] = await Promise.all([store.getSesion(from), store.getConfig()]);
+    const ttl = sessionTtlMs(cfg);
+    const inactivoMs = sesion ? Date.now() - new Date(sesion.updated_at).getTime() : Infinity;
+    const expirada = !sesion || inactivoMs > ttl;
     const ctx = { from, name, paso: expirada ? "inicio" : sesion.paso, datos: expirada ? {} : (sesion?.datos || {}) };
     const texto = msg.text || "";
     const btn = msg.buttonId || null;
     if (texto) await store.logMensaje(from, "user", texto, { paso: ctx.paso });
     else if (btn) await store.logMensaje(from, "user", msg.buttonTitle || btn, { paso: ctx.paso, button: btn });
 
+    // Sesión vencida a mitad de un proceso → se avisa y se reinicia desde la bienvenida.
+    if (expirada && sesion && sesion.datos?.flujo && sesion.paso !== "menu") {
+      const min = Math.round(ttl / 60000);
+      if (btn && btn !== BTN.menu) { /* botón viejo: igual reiniciamos */ }
+      return showMenu(ctx, { bienvenida: true, nota: `⏱️ Pasaron más de ${min} minutos sin actividad, así que reinicié la conversación. Empecemos de nuevo:` });
+    }
+
     // Comandos globales
+    if (texto && RE_SALUDO_GLOBAL.test(texto)) return showMenu(ctx, { bienvenida: true });
+    if (texto && RE_RESERVAR_GLOBAL.test(texto)) return startReserva(ctx);
     if (btn === BTN.menu || (texto && RE_MENU.test(texto))) return showMenu(ctx, { intro: ctx.datos.flujo ? "Listo, dejé el proceso anterior. ¿Qué deseas hacer?" : null });
     if (btn === BTN.reservar) return startReserva(ctx);
     if (btn === BTN.misRecojos) return showMisRecojos(ctx);
@@ -658,4 +675,4 @@ function createFlow({ store, wa, sunat = null, mailer = null, constancias = null
   return { handle, BTN, detectarMateriales };
 }
 
-module.exports = { createFlow, BTN, SESSION_TTL_MS, detectarMateriales };
+module.exports = { createFlow, BTN, SESSION_TTL_MS_DEFAULT, sessionTtlMs, detectarMateriales };

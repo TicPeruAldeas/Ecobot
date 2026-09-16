@@ -61,7 +61,7 @@ Menú inicial: **👉 Empezar reserva · Mis reservas · Constancias**. La bienv
 | `WA_TEMPLATE_CAMBIO` | opcional | Plantilla para avisar reprogramación/cancelación hecha desde el panel (params: nombre, código, cambio) |
 | `WA_TEMPLATE_LANG` | opcional | Default `es` |
 | `STORAGE_BUCKET` | opcional | Default `eco-fotos` |
-| `SESSION_TTL_HOURS` | opcional | Inactividad que reinicia el flujo (12) |
+| `SESSION_TTL_MINUTES` | opcional | Inactividad que reinicia la conversación desde la bienvenida (30). Editable también en el panel (`sesion_minutos`). |
 | `CONSENT_DAYS` | opcional | Vigencia del consentimiento (30) |
 | `REMINDER_SWEEP_MINUTES` | opcional | Frecuencia del barrido de recordatorios (10) |
 | `INGEST_SECRET` | opcional | Bearer para `POST /simulate` (pruebas sin WhatsApp) |

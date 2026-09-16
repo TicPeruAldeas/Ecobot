@@ -188,6 +188,24 @@ test("guion completo: RUC → SUNAT → peso mínimo → residuos → fotos → 
   assert.equal(h.store.reservas[1].estado, "cancelado");
 });
 
+test("saludos globales reinician; 'reservar' arranca la reserva; 30 min sin actividad reinician con aviso", async () => {
+  const h = harness();
+  await h.text("hola"); await h.btn("menu_reservar"); await h.text("20100047218"); await h.btn("si"); await h.btn("si");
+  assert.match(h.last().body, /cantidad y el tipo de residuos/);
+  await h.text("Eco");                                     // saludo suelto a mitad del flujo → bienvenida
+  assert.match(h.last().body, /¡Hola! \*Carla\*/); assert.equal(h.last().buttons[0].id, "menu_reservar");
+  await h.text("reservar");                                // palabra suelta → empieza la reserva
+  assert.match(h.last().body, /Ingrese el número de \*RUC\*/);
+  await h.text("Eco Reciclaje SAC");                       // no es saludo suelto: se trata como respuesta del paso (RUC inválido)
+  assert.match(h.last().body, /RUC debe tener/);
+  // Sesión vencida: simulamos 31 minutos de inactividad en medio de la reserva
+  const s = h.store.sesiones.get(h.from);
+  s.updated_at = new Date(Date.now() - 31 * 60 * 1000).toISOString();
+  await h.text("20100047218");
+  assert.match(h.last().body, /Pasaron más de 30 minutos sin actividad/); assert.match(h.last().body, /¡Hola! \*Carla\*/);
+  assert.equal(h.store.sesiones.get(h.from).paso, "menu");
+});
+
 test("peso mínimo: 'No' termina amablemente y vuelve al menú", async () => {
   const h = harness();
   await h.text("hola"); await h.btn("menu_reservar"); await h.text("20100047218"); await h.btn("si");
